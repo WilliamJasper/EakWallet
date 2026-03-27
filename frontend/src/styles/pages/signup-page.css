@@ -1,0 +1,178 @@
+/* Legacy layout (ไม่ถูก import ใน React ตอนนี้ — เก็บไว้ใน styles เพื่ออ้างอิง) */
+.authPage {
+  position: relative;
+  min-height: 100svh;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #ffffff;
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.authBg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  right: 0;
+  background:
+    radial-gradient(800px circle at 10% 10%, rgba(255, 255, 255, 0.15), transparent 55%),
+    radial-gradient(900px circle at 80% 20%, rgba(170, 59, 255, 0.25), transparent 55%),
+    linear-gradient(135deg, #00b4d8 0%, #3a86ff 35%, #8338ec 100%);
+  filter: saturate(1.1);
+  z-index: 0;
+}
+
+.authInner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 0;
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  justify-content: space-between;
+}
+
+.authLeft {
+  flex: 0 0 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.authRight {
+  flex: 0 0 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+}
+
+.authVisual {
+  width: 100%;
+  height: 100%;
+  min-height: 100svh;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.authSide {
+  color: #fff;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  backdrop-filter: none;
+  width: 100%;
+}
+
+.authSideTitle {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.05;
+}
+
+.authSideText {
+  margin: 0 0 18px;
+  color: rgba(255, 255, 255, 0.92);
+  max-width: 260px;
+}
+
+.authSideButton {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #053b54;
+  background: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  width: fit-content;
+}
+
+.authCard {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  flex: 0 1 520px;
+  max-width: 520px;
+  width: 100%;
+}
+
+.authCardHeader {
+  margin-bottom: 14px;
+}
+
+.authCardTitle {
+  margin: 0;
+  font-size: 26px;
+  color: var(--text-h);
+}
+
+.signupBottomText {
+  margin-top: 12px;
+  text-align: center;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.signupBottomText a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.signupBottomText a:hover {
+  text-decoration: underline;
+}
+
+.socialRow {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.socialBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+@media (max-width: 900px) {
+  .authInner {
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px 16px;
+  }
+
+  .authBg {
+    left: 0;
+    right: 0;
+  }
+
+  .authLeft,
+  .authRight {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .authCard {
+    max-width: none;
+  }
+}

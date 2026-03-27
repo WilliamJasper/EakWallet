@@ -1,0 +1,187 @@
+.loginForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tfLabel {
+  font-size: 16px;
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.tfInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 14px;
+  font-size: 18px;
+  background: color-mix(in srgb, var(--bg) 90%, white 10%);
+  color: var(--text-h);
+  outline: none;
+}
+
+.tfInput:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.tfPasswordWrap {
+  position: relative;
+}
+
+.tfPasswordWrap .tfInput {
+  padding-right: 52px;
+}
+
+.tfPasswordToggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 10px;
+  color: rgba(107, 99, 117, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tfPasswordToggle:hover {
+  background: rgba(170, 59, 255, 0.08);
+  color: var(--text-h, #08060d);
+}
+
+.tfInputError {
+  border-color: #e11d48;
+  box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+}
+
+.tfError {
+  color: #e11d48;
+  font-size: 14px;
+}
+
+.tfSelect {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 14px;
+  font-size: 18px;
+  background: color-mix(in srgb, var(--bg) 90%, white 10%);
+  color: var(--text-h);
+  outline: none;
+}
+
+.tfSelect:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.formError {
+  padding: 10px 12px;
+  border: 1px solid rgba(225, 29, 72, 0.35);
+  border-radius: 10px;
+  background: rgba(225, 29, 72, 0.08);
+  color: #e11d48;
+  font-size: 15px;
+}
+
+.formMessage {
+  padding: 10px 12px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 10px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #16a34a;
+  font-size: 15px;
+}
+
+.loginButton {
+  margin-top: 4px;
+  width: 100%;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--accent);
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.loginButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.loginButton:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.loginMetaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.rememberLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--text);
+  user-select: none;
+}
+
+.forgotLink {
+  font-size: 15px;
+  color: #2563eb;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.forgotLink:hover {
+  text-decoration: underline;
+}
+
+.roleSeg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.roleSegBtn {
+  padding: 10px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+  transition: background 0.2s, color 0.2s;
+}
+
+.roleSegBtnActive {
+  background: rgba(170, 59, 255, 0.12);
+  color: var(--text-h);
+}

@@ -1,0 +1,332 @@
+/* Login→Signup: login เลื่อนออกซ้าย (พร้อมภูเขาเลื่อนซ้าย) */
+@keyframes loginSlideLeftOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-42vw);
+    opacity: 0;
+  }
+}
+
+/* Login→Signup หลัง navigate: signup เลื่อนเข้ามาจากขวา */
+@keyframes signupSlideInFromRight {
+  from {
+    transform: translateX(36vw);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Signup→Login: signup เลื่อนออกขวา (พร้อมภูเขากลับขวา) */
+@keyframes signupSlideRightOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(42vw);
+    opacity: 0;
+  }
+}
+
+/* Signup→Login หลัง navigate: login เลื่อนเข้ามาจากซ้าย */
+@keyframes loginSlideInFromLeft {
+  from {
+    transform: translateX(-36vw);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+:root {
+  /* login/signup ออก + ภูเขาเลื่อน — ต้องตรงกับ NAVIGATE_AT_MS ใน AuthPage.tsx */
+  --auth-swap-duration: 0.65s;
+  /* แผงปลายทางเลื่อนเข้า */
+  --auth-enter-duration: 0.55s;
+  --auth-swap-ease: cubic-bezier(0.33, 1, 0.32, 1);
+}
+
+.authRoot {
+  position: relative;
+  min-height: 100svh;
+  overflow: hidden;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.authHero {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  left: 50%;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: left var(--auth-swap-duration) var(--auth-swap-ease);
+}
+
+.authRoot--layout-signup .authHero {
+  left: 0;
+}
+
+/* Login→Signup: ภูเขาเลื่อนซ้ายพร้อม login เลื่อนซ้าย */
+.authRoot--layout-login.authRoot--loginLeaving .authHero {
+  left: 0;
+  transition: left var(--auth-swap-duration) var(--auth-swap-ease);
+}
+
+/* Signup→Login: ภูเขากลับขวา */
+.authRoot--layout-signup.authRoot--signupLeaving .authHero {
+  left: 50%;
+  transition: left var(--auth-swap-duration) var(--auth-swap-ease);
+}
+
+.authRoot--initialSignup .authHero {
+  transition: none;
+  left: 0;
+}
+
+.authPanel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.authPanel--login {
+  left: 0;
+  padding: 0 24px;
+}
+
+.authPanel--signup {
+  right: 0;
+  padding: 0 24px;
+}
+
+.authCard {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  flex: 0 1 520px;
+  max-width: 520px;
+  width: 100%;
+}
+
+.authCardHeader {
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.authCardTitle {
+  margin: 0;
+  font-size: 38px;
+  font-weight: 900;
+  color: var(--text-h);
+  line-height: 1.05;
+}
+
+.authCardTitle--signup {
+  font-size: 30px;
+  font-weight: 900;
+}
+
+.authPanelLoginInner,
+.authPanelSignupInner {
+  width: 100%;
+  max-width: 520px;
+}
+
+.authRoot--layout-login .authPanelLoginInner {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+}
+
+.authRoot--layout-login.authRoot--loginLeaving .authPanelLoginInner {
+  animation: loginSlideLeftOut var(--auth-swap-duration) var(--auth-swap-ease) forwards;
+  pointer-events: none;
+}
+
+.authRoot--layout-signup .authPanelLoginInner {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: none;
+}
+
+.authRoot--layout-login.authRoot--loginEnterAnim .authPanelLoginInner {
+  animation: loginSlideInFromLeft var(--auth-enter-duration) var(--auth-swap-ease) both;
+}
+
+.authRoot--layout-login .authPanelSignupInner {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: none;
+}
+
+.authRoot--layout-signup .authPanelSignupInner {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+}
+
+.authRoot--initialSignup.authRoot--layout-signup .authPanelSignupInner {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+.authRoot--layout-signup.authRoot--signupEnterAnim .authPanelSignupInner {
+  animation: signupSlideInFromRight var(--auth-enter-duration) var(--auth-swap-ease) both;
+}
+
+.authRoot--layout-signup.authRoot--signupLeaving .authPanelSignupInner {
+  animation: signupSlideRightOut var(--auth-swap-duration) var(--auth-swap-ease) forwards;
+  pointer-events: none;
+}
+
+.authRoot--hidePanels .authPanel--login,
+.authRoot--hidePanels .authPanel--signup {
+  display: none;
+}
+
+.authStandalone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  box-sizing: border-box;
+}
+
+.socialRow {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.socialBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.loginBottomText,
+.signupBottomText {
+  margin-top: 12px;
+  text-align: center;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.loginBottomText button,
+.signupBottomText button {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.loginBottomText button:hover,
+.signupBottomText button:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  @keyframes loginSlideLeftOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-16px);
+    }
+  }
+
+  @keyframes signupSlideInFromRight {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes signupSlideRightOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-16px);
+    }
+  }
+
+  @keyframes loginSlideInFromLeft {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .authHero {
+    position: relative;
+    left: 0 !important;
+    width: 100%;
+    min-height: 40svh;
+    transition: none;
+  }
+
+  .authPanel,
+  .authPanel--login,
+  .authPanel--signup {
+    position: relative;
+    width: 100%;
+    left: auto;
+    right: auto;
+    padding: 24px 16px;
+  }
+
+  .authRoot {
+    display: flex;
+    flex-direction: column;
+  }
+}
