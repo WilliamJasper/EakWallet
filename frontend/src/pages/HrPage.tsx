@@ -59,6 +59,7 @@ export default function HrPage() {
   const [q, setQ] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [actionBusyId, setActionBusyId] = useState<number | null>(null)
@@ -106,6 +107,7 @@ export default function HrPage() {
       }
 
       setEmployees(Array.isArray(data?.employees) ? data.employees : [])
+      setLastLoadedAt(new Date())
     } catch {
       setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')
       setEmployees([])
@@ -170,6 +172,28 @@ export default function HrPage() {
   }, [employees, q])
 
   const badgeText = useMemo(() => `${filtered.length} รายการ`, [filtered.length])
+  const totalEmployees = useMemo(() => employees.length, [employees.length])
+  const totalSavings = useMemo(
+    () => employees.reduce((sum, row) => sum + Number(row.accumulatedSavings || 0), 0),
+    [employees]
+  )
+  const pendingProfileCount = useMemo(
+    () =>
+      employees.filter(
+        (row) =>
+          !row.fullName?.trim() || !row.employeeCode?.trim() || !row.startWorkDate?.trim() || !row.appointmentDate?.trim()
+      ).length,
+    [employees]
+  )
+  const newThisMonthCount = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = now.getMonth()
+    return employees.filter((row) => {
+      const d = new Date(row.startWorkDate || '')
+      return !Number.isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === m
+    }).length
+  }, [employees])
 
   async function onExcelSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -393,17 +417,43 @@ export default function HrPage() {
 
       <section className="adminContent">
         <header className="adminHeader">
-          <h1 className="adminHeaderTitle">Employee Management</h1>
+          <div className="hrPageHeaderWrap">
+            <h1 className="adminHeaderTitle">จัดการพนักงาน</h1>
+            <p className="hrPageSubtle">Manage corporate profiles, roles, and provident fund contributions.</p>
+          </div>
         </header>
 
         {error ? <div className="adminBanner adminBannerError">{error}</div> : null}
         {info ? <div className="hrInfoBanner">{info}</div> : null}
 
         <main className="adminMain">
+          <section className="hrHeroStats">
+            <article className="hrHeroCard hrHeroCardLight">
+              <div className="hrHeroLabel">TOTAL EMPLOYEES</div>
+              <div className="hrHeroTitle">จำนวนพนักงานทั้งหมด</div>
+              <div className="hrHeroValue">{totalEmployees.toLocaleString()}</div>
+            </article>
+            <article className="hrHeroCard hrHeroCardDark">
+              <div className="hrHeroLabel">TOTAL ACCUMULATED FUNDS</div>
+              <div className="hrHeroTitle hrHeroTitleDark">ยอดเงินสะสมพนักงานทั้งหมด</div>
+              <div className="hrHeroValueDark">฿{totalSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+            </article>
+          </section>
+          <section className="hrMiniStats">
+            <article className="hrMiniStatCard">
+              <div className="hrMiniStatLabel">พนักงานเริ่มงานเดือนนี้</div>
+              <div className="hrMiniStatValue">{newThisMonthCount.toLocaleString()} คน</div>
+            </article>
+            <article className="hrMiniStatCard">
+              <div className="hrMiniStatLabel">ข้อมูลยังไม่ครบ</div>
+              <div className="hrMiniStatValue">{pendingProfileCount.toLocaleString()} รายการ</div>
+            </article>
+          </section>
+
           <div className="adminSection">
             <div className="adminPanelTopBar">
               <div className="adminPanelTopLeft">
-                <div className="adminPanelTitle">จัดการพนักงาน</div>
+                <div className="adminPanelTitle">Employee List</div>
                 <div className="adminMuted">{badgeText}</div>
               </div>
               <div className="adminPanelTopRight">
@@ -444,7 +494,17 @@ export default function HrPage() {
                 >
                   {importing ? 'กำลังนำเข้า...' : 'นำเข้า Excel'}
                 </button>
+                <button type="button" className="adminBtn adminBtnGhost hrFilterBtn">
+                  Filter
+                </button>
               </div>
+            </div>
+            <div className="hrTableMeta">
+              <span>แสดงผล {filtered.length.toLocaleString()} จาก {employees.length.toLocaleString()} รายการ</span>
+              <span>
+                อัปเดตล่าสุด:{' '}
+                {lastLoadedAt ? lastLoadedAt.toLocaleString('th-TH', { hour12: false }) : '-'}
+              </span>
             </div>
 
             <div className="adminTableWrap hrTableModern">
@@ -452,8 +512,8 @@ export default function HrPage() {
                 <thead>
                   <tr>
                     <th>Role</th>
-                    <th className="adminTableThName">ชื่อ-สกุล</th>
                     <th>รหัสพนักงาน</th>
+                    <th className="adminTableThName">ชื่อ-สกุล</th>
                     <th>วันเริ่มงาน</th>
                     <th>วันบรรจุ</th>
                     <th>ยอดเงินสะสม</th>
@@ -475,13 +535,13 @@ export default function HrPage() {
                     filtered.map((row) => (
                       <tr key={row.id}>
                         <td>{row.role}</td>
+                        <td>{row.employeeCode || '—'}</td>
                         <td
                           className="adminTableTdName"
                           title={row.fullName?.trim() ? row.fullName : undefined}
                         >
                           {row.fullName || '—'}
                         </td>
-                        <td>{row.employeeCode || '—'}</td>
                         <td>{row.startWorkDate || '—'}</td>
                         <td>{row.appointmentDate || '—'}</td>
                         <td>{row.accumulatedSavings.toLocaleString()}</td>
@@ -516,7 +576,7 @@ export default function HrPage() {
       </section>
 
       {editOpen ? (
-        <div className="adminModalOverlay" role="dialog" aria-modal="true">
+        <div className="adminModalOverlay hrEditModalOverlay" role="dialog" aria-modal="true">
           <div className="adminModal">
             <div className="adminModalHeader">
               <div className="adminModalTitle">แก้ไขพนักงาน</div>
@@ -561,6 +621,7 @@ export default function HrPage() {
                 <div className="adminFieldLabel">วันเริ่มงาน (YYYY-MM-DD)</div>
                 <input
                   className="adminInput"
+                  type="date"
                   value={editForm.startWorkDate}
                   onChange={(e) =>
                     setEditForm((s) => ({ ...s, startWorkDate: e.target.value }))
@@ -572,6 +633,7 @@ export default function HrPage() {
                 <div className="adminFieldLabel">วันบรรจุ (YYYY-MM-DD)</div>
                 <input
                   className="adminInput"
+                  type="date"
                   value={editForm.appointmentDate}
                   onChange={(e) =>
                     setEditForm((s) => ({ ...s, appointmentDate: e.target.value }))

@@ -23,14 +23,27 @@
 
 .hrInfoBanner {
   max-width: 960px;
-  margin: 0 auto 16px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  font-size: 14px;
+  margin: 0 auto 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 600;
   border: 1px solid rgba(34, 197, 94, 0.35);
   background: rgba(34, 197, 94, 0.08);
   color: #15803d;
+}
+
+.hrPageHeaderWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hrPageSubtle {
+  margin: 0;
+  color: rgba(107, 99, 117, 0.9);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .hrPage {
@@ -153,7 +166,7 @@
   border: 1px solid var(--border, #e5e4e7);
   border-radius: 999px;
   background: #fff;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 .hrSearchIcon {
@@ -163,11 +176,12 @@
 
 .hrSearchInput.adminInput {
   border: none;
-  min-width: 300px;
+  min-width: 240px;
   box-shadow: none;
-  padding: 10px 0;
+  padding: 8px 0;
   border-radius: 0;
   background: transparent;
+  font-size: 13px;
 }
 
 .hrSearchInput.adminInput:focus-visible {
@@ -177,21 +191,29 @@
 
 .hrImportBtn {
   border-radius: 999px !important;
-  padding: 9px 18px !important;
-  box-shadow: 0 10px 22px rgba(170, 59, 255, 0.22);
+  padding: 7px 14px !important;
+  font-size: 13px !important;
+  box-shadow: 0 8px 16px rgba(170, 59, 255, 0.18);
+}
+
+.hrFilterBtn {
+  border-radius: 999px !important;
+  padding: 7px 14px !important;
+  font-size: 13px !important;
+  background: #fff !important;
 }
 
 .hrTableModern {
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(229, 228, 231, 0.95);
-  box-shadow: 0 10px 26px rgba(8, 6, 13, 0.06);
+  box-shadow: 0 8px 18px rgba(8, 6, 13, 0.05);
 }
 
 .hrTableModern .adminTable th {
   background: #fff;
   border-bottom: 1px solid rgba(229, 228, 231, 0.95);
   color: rgba(8, 6, 13, 0.82);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.02em;
 }
@@ -200,12 +222,138 @@
   color: rgba(8, 6, 13, 0.86);
 }
 
+.hrHeroStats {
+  max-width: 960px;
+  margin: 0 auto 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hrMiniStats {
+  max-width: 960px;
+  margin: 0 auto 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hrMiniStatCard {
+  border: 1px solid rgba(229, 228, 231, 0.95);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 12px rgba(8, 6, 13, 0.04);
+  padding: 10px 12px;
+}
+
+.hrMiniStatLabel {
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(107, 99, 117, 0.86);
+  margin-bottom: 4px;
+}
+
+.hrMiniStatValue {
+  font-size: 18px;
+  font-weight: 900;
+  color: rgba(8, 6, 13, 0.9);
+}
+
+.hrTableMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin: 2px 0 8px;
+  color: rgba(107, 99, 117, 0.9);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hrHeroCard {
+  border-radius: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(229, 228, 231, 0.95);
+  box-shadow: 0 8px 16px rgba(8, 6, 13, 0.06);
+}
+
+.hrHeroCardLight {
+  background: #fff;
+}
+
+.hrHeroCardDark {
+  background: linear-gradient(135deg, #0f2b58, #163b78);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.hrHeroLabel {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: rgba(107, 99, 117, 0.75);
+  margin-bottom: 8px;
+}
+
+.hrHeroCardDark .hrHeroLabel {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hrHeroTitle {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(8, 6, 13, 0.92);
+  margin-bottom: 6px;
+}
+
+.hrHeroTitleDark {
+  color: #fff;
+}
+
+.hrHeroValue {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 1000;
+  color: #131325;
+}
+
+.hrHeroValueDark {
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 1000;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+
 .hrTableModern .adminTable tbody tr:hover td {
   background: rgba(170, 59, 255, 0.03);
 }
 
+.hrEditModalOverlay {
+  align-items: flex-start;
+  padding-top: 56px;
+}
+
 @media (max-width: 900px) {
+  .hrHeroStats {
+    grid-template-columns: 1fr;
+  }
+
+  .hrMiniStats {
+    grid-template-columns: 1fr;
+  }
+
+  .hrTableMeta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hrHeroValue,
+  .hrHeroValueDark {
+    font-size: 30px;
+  }
+
   .hrSearchInput.adminInput {
-    min-width: 220px;
+    min-width: 180px;
   }
 }
