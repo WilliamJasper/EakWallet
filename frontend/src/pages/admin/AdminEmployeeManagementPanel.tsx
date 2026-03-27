@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { API_BASE_URL } from '../../config/api'
 
 type PersonRow = {
   id: number
@@ -13,9 +14,6 @@ type PersonRow = {
 }
 
 type AdminCreds = { adminEmail: string; adminPassword: string }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
 
 function getAdminCreds(): AdminCreds | null {
   const adminEmail = sessionStorage.getItem('adminEmail') || ''

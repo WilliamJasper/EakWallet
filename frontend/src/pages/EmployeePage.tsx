@@ -2,9 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../styles/pages/admin-page.css'
 import '../styles/pages/employee-page.css'
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
+import { API_BASE_URL } from '../config/api'
 
 type Me = {
   displayName: string

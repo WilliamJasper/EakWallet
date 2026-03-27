@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { API_BASE_URL } from '../../config/api'
 
 type DashboardResponse = {
   totalSavings: number
@@ -16,9 +17,6 @@ type DashboardResponse = {
   dailySeries: { labels: string[]; values: number[] }
   monthlySeries: { labels: string[]; values: number[] }
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
 
 function getAdminCreds(): { adminEmail: string; adminPassword: string } | null {
   const adminEmail = sessionStorage.getItem('adminEmail') || ''

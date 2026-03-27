@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import TextField from './TextField'
 import '../../styles/components/auth/signup-form.css'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE_URL } from '../../config/api'
 
 type SignupFormProps = {
   onRegistered?: () => void
@@ -19,9 +20,6 @@ export default function SignupForm({ onRegistered }: SignupFormProps) {
   const [hrPendingModal, setHrPendingModal] = useState(false)
 
   const navigate = useNavigate()
-
-  const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()

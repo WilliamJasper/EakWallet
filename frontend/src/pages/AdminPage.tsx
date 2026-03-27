@@ -5,15 +5,13 @@ import AdminDashboardPanel from './admin/AdminDashboardPanel'
 import AdminNotificationsPanel from './admin/AdminNotificationsPanel'
 import AdminEmployeeManagementPanel from './admin/AdminEmployeeManagementPanel'
 import AdminWalletPanel from './admin/AdminWalletPanel'
+import { API_BASE_URL } from '../config/api'
 
 type PendingHr = {
   id: number
   email: string
   displayName: string
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
 
 function getAdminCreds(): { adminEmail: string; adminPassword: string } | null {
   const adminEmail = sessionStorage.getItem('adminEmail') || ''

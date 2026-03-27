@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import '../styles/pages/admin-page.css'
 import '../styles/pages/hr-page.css'
 import { parseHrEmployeeWorkbook } from './hr/hrExcelImport'
+import { API_BASE_URL } from '../config/api'
 
 type HrEmployeeRow = {
   id: number
@@ -13,9 +14,6 @@ type HrEmployeeRow = {
   appointmentDate: string
   accumulatedSavings: number
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.toString() || 'http://localhost:5000'
 
 function getHrCreds(): { hrEmail: string; hrPassword: string } | null {
   const hrEmail = sessionStorage.getItem('hrEmail') || ''
