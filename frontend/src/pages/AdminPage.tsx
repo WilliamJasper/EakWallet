@@ -5,6 +5,7 @@ import AdminDashboardPanel from './admin/AdminDashboardPanel'
 import AdminNotificationsPanel from './admin/AdminNotificationsPanel'
 import AdminEmployeeManagementPanel from './admin/AdminEmployeeManagementPanel'
 import AdminWalletPanel from './admin/AdminWalletPanel'
+import WalletSavingsHistoryView from './WalletSavingsHistoryView'
 import { API_BASE_URL } from '../config/api'
 
 type PendingHr = {
@@ -45,7 +46,11 @@ export default function AdminPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const pendingSectionRef = useRef<HTMLDivElement | null>(null)
   const [activeSection, setActiveSection] = useState<
-    'dashboard' | 'notifications' | 'employee_management' | 'wallet_balance'
+    | 'dashboard'
+    | 'notifications'
+    | 'employee_management'
+    | 'wallet_balance'
+    | 'wallet_savings_history'
   >('dashboard')
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
@@ -202,7 +207,11 @@ export default function AdminPage() {
         ? 'ผู้ดูแลระบบ — HR รออนุมัติ'
         : activeSection === 'employee_management'
           ? 'Employee Management'
-          : 'Wallet / Balance'
+          : activeSection === 'wallet_balance'
+            ? 'Wallet / Balance'
+            : activeSection === 'wallet_savings_history'
+              ? 'ประวัติการแก้ไขยอดเงินสะสม'
+              : 'Dashboard'
 
   return (
     <div className="adminPage">
@@ -252,6 +261,13 @@ export default function AdminPage() {
             label="Wallet / Balance"
             active={activeSection === 'wallet_balance'}
             onClick={() => setActiveSection('wallet_balance')}
+          />
+          <SidebarNavItem
+            icon="history"
+            label="ประวัติการแก้ไขยอดเงินสะสม"
+            labelClassName="adminSidebarNavLabel--singleLine"
+            active={activeSection === 'wallet_savings_history'}
+            onClick={() => setActiveSection('wallet_savings_history')}
           />
 
           <div className="adminSidebarDivider" />
@@ -342,9 +358,13 @@ export default function AdminPage() {
             />
           ) : activeSection === 'employee_management' ? (
             <AdminEmployeeManagementPanel />
-          ) : (
+          ) : activeSection === 'wallet_balance' ? (
             <AdminWalletPanel />
-          )}
+          ) : activeSection === 'wallet_savings_history' ? (
+            <div className="adminSection">
+              <WalletSavingsHistoryView role="admin" />
+            </div>
+          ) : null}
         </main>
       </section>
     </div>
@@ -369,6 +389,7 @@ function SidebarNavItem({
     | 'phone'
     | 'users'
     | 'wallet'
+    | 'history'
     | 'bell'
     | 'chat'
     | 'settings'
@@ -411,6 +432,7 @@ function renderIcon(
     | 'phone'
     | 'users'
     | 'wallet'
+    | 'history'
     | 'bell'
     | 'chat'
     | 'settings'
@@ -468,6 +490,13 @@ function renderIcon(
           <path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5Z" />
           <path d="M21 12h-5a2 2 0 0 1 0-4h5v4Z" />
           <circle cx="16.5" cy="10" r="1" />
+        </svg>
+      )
+    case 'history':
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 6v6l4 2" />
         </svg>
       )
     case 'phone':

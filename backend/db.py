@@ -32,6 +32,7 @@ def init_db() -> None:
               password_hash TEXT NOT NULL,
               display_name TEXT NOT NULL DEFAULT '',
               employee_code TEXT NOT NULL DEFAULT '',
+              national_id TEXT NOT NULL DEFAULT '',
               start_work_date TEXT NOT NULL DEFAULT '',
               appointment_date TEXT NOT NULL DEFAULT '',
               accumulated_savings INTEGER NOT NULL DEFAULT 0
@@ -49,6 +50,21 @@ def init_db() -> None:
             );
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              actor_role TEXT NOT NULL,
+              actor_label TEXT NOT NULL DEFAULT '',
+              action TEXT NOT NULL,
+              entity_type TEXT NOT NULL,
+              entity_id INTEGER,
+              summary TEXT NOT NULL DEFAULT '',
+              actor_hr_user_id INTEGER
+            );
+            """
+        )
 
         # Backward-compatible schema change for existing databases.
         cur = conn.cursor()
@@ -63,6 +79,10 @@ def init_db() -> None:
         if "employee_code" not in emp_columns:
             conn.execute(
                 "ALTER TABLE employees ADD COLUMN employee_code TEXT NOT NULL DEFAULT '';"
+            )
+        if "national_id" not in emp_columns:
+            conn.execute(
+                "ALTER TABLE employees ADD COLUMN national_id TEXT NOT NULL DEFAULT '';"
             )
         if "start_work_date" not in emp_columns:
             conn.execute(
@@ -86,6 +106,31 @@ def init_db() -> None:
             )
         if "display_name" not in columns:
             conn.execute("ALTER TABLE hr_users ADD COLUMN display_name TEXT NOT NULL DEFAULT '';")
+
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log';"
+        )
+        if cur.fetchone() is None:
+            conn.execute(
+                """
+                CREATE TABLE audit_log (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                  actor_role TEXT NOT NULL,
+                  actor_label TEXT NOT NULL DEFAULT '',
+                  action TEXT NOT NULL,
+                  entity_type TEXT NOT NULL,
+                  entity_id INTEGER,
+                  summary TEXT NOT NULL DEFAULT '',
+                  actor_hr_user_id INTEGER
+                );
+                """
+            )
+
+        cur.execute("PRAGMA table_info(audit_log);")
+        audit_cols = {row["name"] for row in cur.fetchall()}
+        if audit_cols and "actor_hr_user_id" not in audit_cols:
+            conn.execute("ALTER TABLE audit_log ADD COLUMN actor_hr_user_id INTEGER;")
 
         conn.commit()
 

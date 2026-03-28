@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import '../styles/pages/admin-page.css'
 import '../styles/pages/hr-page.css'
 import { parseHrEmployeeWorkbook } from './hr/hrExcelImport'
 import { API_BASE_URL } from '../config/api'
+import WalletSavingsHistoryView from './WalletSavingsHistoryView'
 
 type HrEmployeeRow = {
   id: number
   role: string
   employeeCode: string
+  nationalId: string
   fullName: string
   startWorkDate: string
   appointmentDate: string
   accumulatedSavings: number
+  lastUpdatedAt?: string
 }
 
 function getHrCreds(): { hrEmail: string; hrPassword: string } | null {
@@ -31,6 +34,81 @@ function UsersIcon() {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   )
+}
+
+function HistoryMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  )
+}
+
+function FilterIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function HrPencilIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path
+        d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function HrTrashIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M3 6h18" strokeLinecap="round" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" strokeLinejoin="round" />
+      <path d="M10 11v6M14 11v6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** กันข้อความวันที่จาก Excel มีตัวขึ้นบรรทัดใหม่ แล้วตารางแตกบรรทัด */
+function displayOneLineDate(v: string | undefined): string {
+  if (v == null || v === '') return '—'
+  if (v === '—' || v === '-') return v
+  const t = v.replace(/\r?\n/g, '').replace(/\s+/g, ' ').trim()
+  return t || '—'
+}
+
+/** ค่า created_at จาก SQLite — ต่อ Z ให้ parse เป็น UTC แล้วแสดงตามเวลาเครื่อง */
+function parseStoredAuditUtc(isoish: string): Date {
+  const raw = isoish.trim()
+  if (!raw) return new Date(NaN)
+  let s = raw.includes('T') ? raw : raw.replace(' ', 'T')
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    s = `${s}Z`
+  }
+  return new Date(s)
+}
+
+function formatLastUpdatedAt(isoish: string | undefined): string {
+  if (!isoish?.trim()) return '—'
+  const d = parseStoredAuditUtc(isoish)
+  if (Number.isNaN(d.getTime())) return '—'
+  const datePart = d.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  const h = d.getHours()
+  const m = d.getMinutes()
+  const sec = d.getSeconds()
+  const timePart = `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  return `${datePart} ${timePart}`
 }
 
 function EakWalletLogo() {
@@ -59,7 +137,6 @@ export default function HrPage() {
   const [q, setQ] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [actionBusyId, setActionBusyId] = useState<number | null>(null)
@@ -68,11 +145,13 @@ export default function HrPage() {
   const [editRowId, setEditRowId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<{
     fullName: string
+    nationalId: string
     startWorkDate: string
     appointmentDate: string
     accumulatedSavings: number
   }>({
     fullName: '',
+    nationalId: '',
     startWorkDate: '',
     appointmentDate: '',
     accumulatedSavings: 0,
@@ -107,7 +186,6 @@ export default function HrPage() {
       }
 
       setEmployees(Array.isArray(data?.employees) ? data.employees : [])
-      setLastLoadedAt(new Date())
     } catch {
       setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')
       setEmployees([])
@@ -161,6 +239,7 @@ export default function HrPage() {
         row.role,
         row.fullName,
         row.employeeCode,
+        row.nationalId,
         row.startWorkDate,
         row.appointmentDate,
         String(row.accumulatedSavings),
@@ -210,11 +289,12 @@ export default function HrPage() {
     setError(null)
     setImporting(true)
     try {
-      const rows = await parseHrEmployeeWorkbook(file)
-      if (rows.length === 0) {
-        setError('ไม่พบข้อมูลในไฟล์ (ต้องมีอย่างน้อย 1 แถวข้อมูลตั้งแต่แถวที่ 2 และคอลัมน์ A–F)')
+      const parsed = await parseHrEmployeeWorkbook(file)
+      if (!parsed.ok) {
+        setError(parsed.message)
         return
       }
+      const rows = parsed.rows
 
       const res = await fetch(`${API_BASE_URL}/api/hr/employees/import`, {
         method: 'POST',
@@ -249,6 +329,8 @@ export default function HrPage() {
     setEditRowId(row.id)
     setEditForm({
       fullName: row.fullName === '—' ? '' : row.fullName,
+      nationalId:
+        row.nationalId === '—' || row.nationalId === '-' ? '' : row.nationalId,
       startWorkDate:
         row.startWorkDate === '—' || row.startWorkDate === '-' ? '' : row.startWorkDate,
       appointmentDate:
@@ -279,6 +361,7 @@ export default function HrPage() {
           ...creds,
           id: editRowId,
           fullName: editForm.fullName.trim(),
+          nationalId: editForm.nationalId.trim(),
           startWorkDate: editForm.startWorkDate.trim(),
           appointmentDate: editForm.appointmentDate.trim(),
           accumulatedSavings: editForm.accumulatedSavings,
@@ -363,12 +446,31 @@ export default function HrPage() {
 
         <nav className="adminSidebarNav" aria-label="navigation">
           <div className="adminSidebarSectionLabel">MENU</div>
-          <button type="button" className="adminSidebarNavItem adminSidebarNavItem--active">
+          <NavLink
+            to="/hr"
+            end
+            className={({ isActive }) =>
+              `adminSidebarNavItem ${isActive ? 'adminSidebarNavItem--active' : ''}`
+            }
+          >
             <span className="adminSidebarNavIcon" aria-hidden="true">
               <UsersIcon />
             </span>
             <span className="adminSidebarNavLabel adminSidebarNavLabel--singleLine">จัดการพนักงาน</span>
-          </button>
+          </NavLink>
+          <NavLink
+            to="/hr/wallet-history"
+            className={({ isActive }) =>
+              `adminSidebarNavItem ${isActive ? 'adminSidebarNavItem--active' : ''}`
+            }
+          >
+            <span className="adminSidebarNavIcon" aria-hidden="true">
+              <HistoryMenuIcon />
+            </span>
+            <span className="adminSidebarNavLabel adminSidebarNavLabel--singleLine">
+              ประวัติการแก้ไขยอดเงินสะสม
+            </span>
+          </NavLink>
         </nav>
 
         <div className="adminSidebarBottom">
@@ -416,18 +518,25 @@ export default function HrPage() {
       </aside>
 
       <section className="adminContent">
-        <header className="adminHeader">
-          <div className="hrPageHeaderWrap">
-            <h1 className="adminHeaderTitle">จัดการพนักงาน</h1>
-            <p className="hrPageSubtle">Manage corporate profiles, roles, and provident fund contributions.</p>
-          </div>
-        </header>
+        <Routes>
+          <Route
+            index
+            element={
+              <>
+                <header className="adminHeader">
+                  <div className="hrPageHeaderWrap">
+                    <h1 className="adminHeaderTitle">จัดการพนักงาน</h1>
+                    <p className="hrPageSubtle">
+                      Manage corporate profiles, roles, and provident fund contributions.
+                    </p>
+                  </div>
+                </header>
 
-        {error ? <div className="adminBanner adminBannerError">{error}</div> : null}
-        {info ? <div className="hrInfoBanner">{info}</div> : null}
+                {error ? <div className="adminBanner adminBannerError">{error}</div> : null}
+                {info ? <div className="hrInfoBanner">{info}</div> : null}
 
-        <main className="adminMain">
-          <section className="hrHeroStats">
+                <main className="adminMain">
+                  <section className="hrHeroStats">
             <article className="hrHeroCard hrHeroCardLight">
               <div className="hrHeroLabel">TOTAL EMPLOYEES</div>
               <div className="hrHeroTitle">จำนวนพนักงานทั้งหมด</div>
@@ -451,12 +560,18 @@ export default function HrPage() {
           </section>
 
           <div className="adminSection">
-            <div className="adminPanelTopBar">
-              <div className="adminPanelTopLeft">
-                <div className="adminPanelTitle">Employee List</div>
-                <div className="adminMuted">{badgeText}</div>
+            <div className="hrTableMeta">
+              <div className="hrTableMetaPrimary">
+                <span className="hrTableMetaHeading">Employee List</span>
+                <span className="adminMuted hrTableMetaCount">{badgeText}</span>
+                <span className="hrTableMetaDot" aria-hidden="true">
+                  ·
+                </span>
+                <span>
+                  แสดงผล {filtered.length.toLocaleString()} จาก {employees.length.toLocaleString()} รายการ
+                </span>
               </div>
-              <div className="adminPanelTopRight">
+              <div className="hrTableMetaTools">
                 <div className="hrSearchWrap">
                   <svg
                     className="hrSearchIcon"
@@ -472,7 +587,7 @@ export default function HrPage() {
                   </svg>
                   <input
                     className="adminInput hrSearchInput"
-                    placeholder="ค้นหา role / ชื่อ / รหัสพนักงาน / วันที่"
+                    placeholder="ค้นหา role / ชื่อ / รหัสพนักงาน / เลขบัตรประชาชน / วันที่"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                   />
@@ -494,17 +609,15 @@ export default function HrPage() {
                 >
                   {importing ? 'กำลังนำเข้า...' : 'นำเข้า Excel'}
                 </button>
-                <button type="button" className="adminBtn adminBtnGhost hrFilterBtn">
-                  Filter
+                <button
+                  type="button"
+                  className="adminBtn adminBtnGhost hrFilterIconBtn"
+                  aria-label="ตัวกรอง"
+                  title="ตัวกรอง"
+                >
+                  <FilterIcon />
                 </button>
               </div>
-            </div>
-            <div className="hrTableMeta">
-              <span>แสดงผล {filtered.length.toLocaleString()} จาก {employees.length.toLocaleString()} รายการ</span>
-              <span>
-                อัปเดตล่าสุด:{' '}
-                {lastLoadedAt ? lastLoadedAt.toLocaleString('th-TH', { hour12: false }) : '-'}
-              </span>
             </div>
 
             <div className="adminTableWrap hrTableModern">
@@ -512,56 +625,73 @@ export default function HrPage() {
                 <thead>
                   <tr>
                     <th>Role</th>
-                    <th>รหัสพนักงาน</th>
+                    <th className="hrTableThCode">รหัสพนักงาน</th>
+                    <th>เลขบัตรประชาชน</th>
                     <th className="adminTableThName">ชื่อ-สกุล</th>
                     <th>วันเริ่มงาน</th>
                     <th>วันบรรจุ</th>
                     <th>ยอดเงินสะสม</th>
-                    <th aria-label="actions" />
+                    <th className="hrTableThLastUpdated">อัพเดทล่าสุด</th>
+                    <th aria-label="การดำเนินการ" />
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="hrTableStatusCell">
+                      <td colSpan={9} className="hrTableStatusCell">
                         กำลังโหลด...
                       </td>
                     </tr>
                   ) : filtered.length === 0 ? (
                     <tr className="hrTableEmptyRow" aria-hidden="true">
-                      <td colSpan={7} className="hrTableEmptyCell" />
+                      <td colSpan={9} className="hrTableEmptyCell" />
                     </tr>
                   ) : (
                     filtered.map((row) => (
                       <tr key={row.id}>
                         <td>{row.role}</td>
-                        <td>{row.employeeCode || '—'}</td>
+                        <td className="hrTableCodeCell">{row.employeeCode || '—'}</td>
+                        <td>{row.nationalId || '—'}</td>
                         <td
                           className="adminTableTdName"
                           title={row.fullName?.trim() ? row.fullName : undefined}
                         >
                           {row.fullName || '—'}
                         </td>
-                        <td>{row.startWorkDate || '—'}</td>
-                        <td>{row.appointmentDate || '—'}</td>
+                        <td className="hrTableDateCell">{displayOneLineDate(row.startWorkDate)}</td>
+                        <td className="hrTableDateCell">{displayOneLineDate(row.appointmentDate)}</td>
                         <td>{row.accumulatedSavings.toLocaleString()}</td>
+                        <td
+                          className="hrTableLastUpdatedCell"
+                          title={row.lastUpdatedAt?.trim() ? formatLastUpdatedAt(row.lastUpdatedAt) : undefined}
+                        >
+                          {formatLastUpdatedAt(row.lastUpdatedAt)}
+                        </td>
                         <td className="adminTableActions">
-                          <div className="adminRowActions">
+                          <div className="adminRowActions hrTableRowActions">
                             <button
                               type="button"
-                              className="adminBtn adminBtnGhost"
+                              className="hrTableIconBtn hrTableIconBtn--edit"
                               disabled={actionBusyId === row.id}
+                              aria-label={`แก้ไข ${row.fullName || row.employeeCode || 'พนักงาน'}`}
+                              title="แก้ไข"
                               onClick={() => openEdit(row)}
                             >
-                              แก้ไข
+                              <HrPencilIcon />
                             </button>
                             <button
                               type="button"
-                              className="adminBtn adminBtnGhost"
+                              className="hrTableIconBtn hrTableIconBtn--delete"
                               disabled={actionBusyId === row.id}
+                              aria-label={
+                                actionBusyId === row.id
+                                  ? 'กำลังลบ'
+                                  : `ลบ ${row.fullName || row.employeeCode || 'พนักงาน'}`
+                              }
+                              title={actionBusyId === row.id ? 'กำลังลบ...' : 'ลบ'}
                               onClick={() => deleteOne(row)}
                             >
-                              {actionBusyId === row.id ? 'กำลังลบ...' : 'ลบ'}
+                              <HrTrashIcon />
                             </button>
                           </div>
                         </td>
@@ -572,7 +702,29 @@ export default function HrPage() {
               </table>
             </div>
           </div>
-        </main>
+                </main>
+              </>
+            }
+          />
+          <Route
+            path="wallet-history"
+            element={
+              <>
+                <header className="adminHeader">
+                  <div className="hrPageHeaderWrap">
+                    <h1 className="adminHeaderTitle">ประวัติการแก้ไขยอดเงินสะสม</h1>
+                    <p className="hrPageSubtle">
+                      ตั้งแต่นำเข้า Excel แก้ไขในระบบ HR จนถึงการปรับยอดโดยผู้ดูแลระบบ — แสดงวันที่และเวลาของแต่ละรายการ
+                    </p>
+                  </div>
+                </header>
+                <main className="adminMain">
+                  <WalletSavingsHistoryView role="hr" />
+                </main>
+              </>
+            }
+          />
+        </Routes>
       </section>
 
       {editOpen ? (
@@ -599,6 +751,17 @@ export default function HrPage() {
                   className="adminInput"
                   value={editForm.fullName}
                   onChange={(e) => setEditForm((s) => ({ ...s, fullName: e.target.value }))}
+                />
+              </label>
+
+              <label className="adminField">
+                <div className="adminFieldLabel">เลขบัตรประชาชน</div>
+                <input
+                  className="adminInput"
+                  value={editForm.nationalId}
+                  onChange={(e) => setEditForm((s) => ({ ...s, nationalId: e.target.value }))}
+                  inputMode="numeric"
+                  autoComplete="off"
                 />
               </label>
 

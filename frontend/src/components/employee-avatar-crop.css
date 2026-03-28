@@ -1,0 +1,130 @@
+.employeeAvatarCropOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  font-family: 'Prompt', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (min-width: 480px) {
+  .employeeAvatarCropOverlay {
+    align-items: center;
+    padding: 16px;
+  }
+}
+
+.employeeAvatarCropBackdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  background: rgba(8, 6, 13, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.employeeAvatarCropPanel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  max-height: min(92vh, 640px);
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 40px rgba(8, 6, 13, 0.18);
+  padding: 18px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+@media (min-width: 480px) {
+  .employeeAvatarCropPanel {
+    border-radius: 20px;
+    max-height: 90vh;
+  }
+}
+
+.employeeAvatarCropTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #1a2b4b;
+  text-align: center;
+}
+
+.employeeAvatarCropHint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(107, 99, 117, 0.92);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.employeeAvatarCropStage {
+  position: relative;
+  width: 100%;
+  height: min(48vh, 300px);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0f172a;
+  touch-action: none;
+}
+
+.employeeAvatarCropZoom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.employeeAvatarCropZoomLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(107, 99, 117, 0.95);
+}
+
+.employeeAvatarCropZoom input[type='range'] {
+  width: 100%;
+  accent-color: #3eb4a3;
+}
+
+.employeeAvatarCropActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.employeeAvatarCropBtn {
+  flex: 1;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+
+.employeeAvatarCropBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.employeeAvatarCropBtn--ghost {
+  background: #f1f5f9;
+  color: #1a2b4b;
+  border: 1px solid rgba(229, 228, 231, 0.95);
+}
+
+.employeeAvatarCropBtn--primary {
+  background: linear-gradient(135deg, #3eb4a3, #2a9d8f);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(46, 157, 143, 0.35);
+}

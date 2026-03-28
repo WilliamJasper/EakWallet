@@ -10,12 +10,108 @@ from db import get_connection
 
 auth_bp = Blueprint("auth", __name__)
 
+# ประวัติยอดเงินสะสม: ปรับผ่าน Admin, นำเข้า Excel, แก้ไข HR, จัดการพนักงานโดย Admin
+_WALLET_SAVINGS_HISTORY_ACTIONS: tuple[str, ...] = (
+    "wallet_adjust",
+    "excel_import",
+    "employee_update",
+    "employee_upsert",
+)
+
 ADMIN_EMAIL = "admin@123gmail.com"
 ADMIN_PASSWORD = "WilliamJasper3"
 
 
 def _norm_email(value: str) -> str:
     return str(value or "").strip().lower()
+
+
+def _fmt_savings_th(n: int) -> str:
+    return f"{int(n):,} บาท"
+
+
+def _norm_national_id_digits(value: str) -> str:
+    """เลขบัตรประชาชนเปรียบเทียบแบบเหลือเฉพาะตัวเลข"""
+    return re.sub(r"\D", "", str(value or "").strip())
+
+
+def _norm_display_name_compare(value: str) -> str:
+    """ชื่อ-สกุลเปรียบเทียบ: ตัดช่องว่างซ้ำ ตัวพิมพ์เล็ก (ส่วนอังกฤษ)"""
+    return " ".join(str(value or "").split()).strip().lower()
+
+
+def _squeeze_excel_cell(value: object) -> str:
+    """รวมข้อความที่ Excel แตกหลายบรรทัดในหนึ่งเซลล์ (เช่น วันที่) เป็นบรรทัดเดียว"""
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    return "".join(s.split())
+
+
+def _audit_append(
+    cur: sqlite3.Cursor,
+    actor_role: str,
+    actor_label: str,
+    action: str,
+    entity_type: str,
+    entity_id: int | None,
+    summary: str,
+    *,
+    actor_hr_user_id: int | None = None,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO audit_log (actor_role, actor_label, action, entity_type, entity_id, summary, actor_hr_user_id)
+        VALUES (?,?,?,?,?,?,?)
+        """,
+        (
+            (actor_role or "")[:32],
+            (actor_label or "")[:256],
+            (action or "")[:80],
+            (entity_type or "")[:32],
+            entity_id,
+            (summary or "")[:2000],
+            actor_hr_user_id,
+        ),
+    )
+
+
+def _wallet_audit_row_to_entry(r: sqlite3.Row) -> dict:
+    """แนบข้อมูลพนักงานจาก employees ให้หน้าประวัติค้นชื่อ/รหัส/เลขบัตรได้"""
+    return {
+        "id": r["id"],
+        "createdAt": r["created_at"],
+        "actorRole": r["actor_role"],
+        "actorLabel": r["actor_label"],
+        "action": r["action"],
+        "entityType": r["entity_type"],
+        "entityId": r["entity_id"],
+        "summary": r["summary"],
+        "employeeDisplayName": str(r["emp_display_name"] or "").strip(),
+        "employeeCode": str(r["emp_employee_code"] or "").strip(),
+        "nationalId": str(r["emp_national_id"] or "").strip(),
+    }
+
+
+def _employee_id_from_login_payload(payload: dict) -> int | None:
+    name = str(payload.get("employeeName", "")).strip()
+    code = str(payload.get("employeeCode", "")).strip()
+    if not name or not code:
+        return None
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, password_hash
+            FROM employees
+            WHERE lower(trim(display_name)) = lower(trim(?))
+            """,
+            (name,),
+        )
+        for r in cur.fetchall():
+            if check_password_hash(r["password_hash"], code):
+                return int(r["id"])
+    return None
 
 
 def _verify_hr_credentials(payload: dict):
@@ -197,7 +293,7 @@ def employee_me():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, display_name, employee_code, start_work_date, appointment_date,
+            SELECT id, display_name, employee_code, national_id, start_work_date, appointment_date,
                    accumulated_savings, password_hash
             FROM employees
             WHERE lower(trim(display_name)) = lower(trim(?))
@@ -223,12 +319,15 @@ def employee_me():
     def fmt(v: str) -> str:
         return v if v else "-"
 
+    nid = (row["national_id"] or "").strip()
+
     return (
         jsonify(
             {
                 "id": emp_id,
                 "displayName": (row["display_name"] or "").strip() or "—",
                 "employeeCode": ec,
+                "nationalId": fmt(nid),
                 "startWorkDate": fmt(sw),
                 "appointmentDate": fmt(ap),
                 "accumulatedSavings": int(row["accumulated_savings"] or 0),
@@ -236,6 +335,113 @@ def employee_me():
         ),
         200,
     )
+
+
+@auth_bp.route("/api/employee/audit-log", methods=["POST"])
+def employee_audit_log():
+    payload = request.get_json(silent=True) or {}
+    emp_id = _employee_id_from_login_payload(payload)
+    if emp_id is None:
+        return jsonify({"error": "invalid credentials"}), 401
+    try:
+        limit = int(payload.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(100, limit))
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, created_at, actor_role, actor_label, action, entity_type, entity_id, summary
+            FROM audit_log
+            WHERE entity_type = 'employee' AND entity_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (emp_id, limit),
+        )
+        rows = cur.fetchall()
+
+    entries = [
+        {
+            "id": r["id"],
+            "createdAt": r["created_at"],
+            "actorRole": r["actor_role"],
+            "actorLabel": r["actor_label"],
+            "action": r["action"],
+            "entityType": r["entity_type"],
+            "entityId": r["entity_id"],
+            "summary": r["summary"],
+        }
+        for r in rows
+    ]
+    return jsonify({"entries": entries}), 200
+
+
+@auth_bp.route("/api/employee/wallet-audit-log", methods=["POST"])
+def employee_wallet_audit_log():
+    payload = request.get_json(silent=True) or {}
+    emp_id = _employee_id_from_login_payload(payload)
+    if emp_id is None:
+        return jsonify({"error": "invalid credentials"}), 401
+    try:
+        limit = int(payload.get("limit", 80))
+    except (TypeError, ValueError):
+        limit = 80
+    limit = max(1, min(200, limit))
+
+    _ph = ",".join("?" * len(_WALLET_SAVINGS_HISTORY_ACTIONS))
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT
+              a.id,
+              a.created_at,
+              a.actor_role,
+              a.actor_label,
+              a.action,
+              a.entity_type,
+              a.entity_id,
+              a.summary,
+              COALESCE(e.display_name, '') AS emp_display_name,
+              COALESCE(e.employee_code, '') AS emp_employee_code,
+              COALESCE(e.national_id, '') AS emp_national_id
+            FROM audit_log a
+            LEFT JOIN employees e ON a.entity_type = 'employee' AND a.entity_id = e.id
+            WHERE a.entity_type = 'employee' AND a.entity_id = ?
+            AND a.action IN ({_ph})
+            ORDER BY a.id DESC
+            LIMIT ?
+            """,
+            (emp_id, *_WALLET_SAVINGS_HISTORY_ACTIONS, limit),
+        )
+        rows = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT COALESCE(MAX(id), 0) AS m
+            FROM audit_log
+            WHERE entity_type = 'employee' AND entity_id = ?
+            AND action IN ({_ph})
+            """,
+            (emp_id, *_WALLET_SAVINGS_HISTORY_ACTIONS),
+        )
+        max_row = cur.fetchone()
+        max_audit_id = int(max_row["m"] if max_row is not None else 0)
+
+    entries = [_wallet_audit_row_to_entry(r) for r in rows]
+    return jsonify({"entries": entries, "maxAuditId": max_audit_id}), 200
+
+
+@auth_bp.route("/api/employee/wallet-audit-log/clear", methods=["POST"])
+def employee_wallet_audit_log_clear():
+    """คง path ไว้ให้ client เก่า — การเคลียร์จริงทำฝั่ง frontend (localStorage) ไม่ลบ audit_log"""
+    payload = request.get_json(silent=True) or {}
+    emp_id = _employee_id_from_login_payload(payload)
+    if emp_id is None:
+        return jsonify({"error": "invalid credentials"}), 401
+    return jsonify({"ok": True}), 200
 
 
 @auth_bp.route("/api/signup", methods=["POST"])
@@ -309,13 +515,27 @@ def approve_hr():
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
+            "SELECT id, display_name FROM hr_users WHERE lower(email)=? LIMIT 1",
+            (hr_email,),
+        )
+        hrow = cur.fetchone()
+        if not hrow:
+            return jsonify({"error": "hr account not found"}), 404
+        cur.execute(
             "UPDATE hr_users SET approved=1 WHERE lower(email)=?",
             (hr_email,),
         )
+        label = (hrow["display_name"] or hr_email or "").strip()[:200]
+        _audit_append(
+            cur,
+            "admin",
+            admin_email,
+            "hr_approve",
+            "hr_user",
+            int(hrow["id"]),
+            f"อนุมัติบัญชี HR: {label}",
+        )
         conn.commit()
-
-        if cur.rowcount == 0:
-            return jsonify({"error": "hr account not found"}), 404
 
     return jsonify({"message": "hr approved"}), 200
 
@@ -336,13 +556,27 @@ def reject_hr():
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
+            "SELECT id, display_name FROM hr_users WHERE lower(email)=? AND approved=0 LIMIT 1",
+            (hr_email,),
+        )
+        hrow = cur.fetchone()
+        if not hrow:
+            return jsonify({"error": "hr account not found or already processed"}), 404
+        cur.execute(
             "UPDATE hr_users SET approved=2 WHERE lower(email)=? AND approved=0",
             (hr_email,),
         )
+        label = (hrow["display_name"] or hr_email or "").strip()[:200]
+        _audit_append(
+            cur,
+            "admin",
+            admin_email,
+            "hr_reject",
+            "hr_user",
+            int(hrow["id"]),
+            f"ปฏิเสธคำขอ HR: {label}",
+        )
         conn.commit()
-
-        if cur.rowcount == 0:
-            return jsonify({"error": "hr account not found or already processed"}), 404
 
     return jsonify({"message": "hr rejected"}), 200
 
@@ -377,6 +611,224 @@ def list_pending_hr():
         for r in rows
     ]
     return jsonify({"pending": pending}), 200
+
+
+@auth_bp.route("/api/hr/audit-log", methods=["POST"])
+def hr_audit_log():
+    payload = request.get_json(silent=True) or {}
+    _hr_row, err = _verify_hr_credentials(payload)
+    if err:
+        return err[0], err[1]
+    try:
+        limit = int(payload.get("limit", 150))
+    except (TypeError, ValueError):
+        limit = 150
+    limit = max(1, min(300, limit))
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, created_at, actor_role, actor_label, action, entity_type, entity_id, summary
+            FROM audit_log
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    entries = [
+        {
+            "id": r["id"],
+            "createdAt": r["created_at"],
+            "actorRole": r["actor_role"],
+            "actorLabel": r["actor_label"],
+            "action": r["action"],
+            "entityType": r["entity_type"],
+            "entityId": r["entity_id"],
+            "summary": r["summary"],
+        }
+        for r in rows
+    ]
+    return jsonify({"entries": entries}), 200
+
+
+@auth_bp.route("/api/admin/audit-log", methods=["POST"])
+def admin_audit_log():
+    payload = request.get_json(silent=True) or {}
+    admin_email = _norm_email(payload.get("adminEmail", ""))
+    admin_password = str(payload.get("adminPassword", ""))
+
+    if not _verify_admin(admin_email, admin_password):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        limit = int(payload.get("limit", 250))
+    except (TypeError, ValueError):
+        limit = 250
+    limit = max(1, min(500, limit))
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, created_at, actor_role, actor_label, action, entity_type, entity_id, summary
+            FROM audit_log
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    entries = [
+        {
+            "id": r["id"],
+            "createdAt": r["created_at"],
+            "actorRole": r["actor_role"],
+            "actorLabel": r["actor_label"],
+            "action": r["action"],
+            "entityType": r["entity_type"],
+            "entityId": r["entity_id"],
+            "summary": r["summary"],
+        }
+        for r in rows
+    ]
+    return jsonify({"entries": entries}), 200
+
+
+@auth_bp.route("/api/hr/wallet-audit-log", methods=["POST"])
+def hr_wallet_audit_log():
+    payload = request.get_json(silent=True) or {}
+    _hr_row, err = _verify_hr_credentials(payload)
+    if err:
+        return err[0], err[1]
+    try:
+        limit = int(payload.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(1, min(400, limit))
+
+    _ph = ",".join("?" * len(_WALLET_SAVINGS_HISTORY_ACTIONS))
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT
+              a.id,
+              a.created_at,
+              a.actor_role,
+              a.actor_label,
+              a.action,
+              a.entity_type,
+              a.entity_id,
+              a.summary,
+              COALESCE(e.display_name, '') AS emp_display_name,
+              COALESCE(e.employee_code, '') AS emp_employee_code,
+              COALESCE(e.national_id, '') AS emp_national_id
+            FROM audit_log a
+            LEFT JOIN employees e ON a.entity_type = 'employee' AND a.entity_id = e.id
+            WHERE a.entity_type = 'employee'
+            AND a.action IN ({_ph})
+            ORDER BY a.id DESC
+            LIMIT ?
+            """,
+            (*_WALLET_SAVINGS_HISTORY_ACTIONS, limit),
+        )
+        rows = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT COALESCE(MAX(id), 0) AS m
+            FROM audit_log
+            WHERE entity_type = 'employee'
+            AND action IN ({_ph})
+            """,
+            (*_WALLET_SAVINGS_HISTORY_ACTIONS,),
+        )
+        max_row = cur.fetchone()
+        max_audit_id = int(max_row["m"] if max_row is not None else 0)
+
+    entries = [_wallet_audit_row_to_entry(r) for r in rows]
+    return jsonify({"entries": entries, "maxAuditId": max_audit_id}), 200
+
+
+@auth_bp.route("/api/hr/wallet-audit-log/clear", methods=["POST"])
+def hr_wallet_audit_log_clear():
+    """คง path ไว้ให้ client เก่า — ไม่ลบ audit_log (เคลียร์แสดงผลที่ frontend)"""
+    payload = request.get_json(silent=True) or {}
+    _hr_row, err = _verify_hr_credentials(payload)
+    if err:
+        return err[0], err[1]
+    return jsonify({"ok": True}), 200
+
+
+@auth_bp.route("/api/admin/wallet-audit-log", methods=["POST"])
+def admin_wallet_audit_log():
+    payload = request.get_json(silent=True) or {}
+    admin_email = _norm_email(payload.get("adminEmail", ""))
+    admin_password = str(payload.get("adminPassword", ""))
+
+    if not _verify_admin(admin_email, admin_password):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        limit = int(payload.get("limit", 300))
+    except (TypeError, ValueError):
+        limit = 300
+    limit = max(1, min(600, limit))
+
+    _ph = ",".join("?" * len(_WALLET_SAVINGS_HISTORY_ACTIONS))
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT
+              a.id,
+              a.created_at,
+              a.actor_role,
+              a.actor_label,
+              a.action,
+              a.entity_type,
+              a.entity_id,
+              a.summary,
+              COALESCE(e.display_name, '') AS emp_display_name,
+              COALESCE(e.employee_code, '') AS emp_employee_code,
+              COALESCE(e.national_id, '') AS emp_national_id
+            FROM audit_log a
+            LEFT JOIN employees e ON a.entity_type = 'employee' AND a.entity_id = e.id
+            WHERE a.entity_type = 'employee'
+            AND a.action IN ({_ph})
+            ORDER BY a.id DESC
+            LIMIT ?
+            """,
+            (*_WALLET_SAVINGS_HISTORY_ACTIONS, limit),
+        )
+        rows = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT COALESCE(MAX(id), 0) AS m
+            FROM audit_log
+            WHERE entity_type = 'employee'
+            AND action IN ({_ph})
+            """,
+            (*_WALLET_SAVINGS_HISTORY_ACTIONS,),
+        )
+        max_row = cur.fetchone()
+        max_audit_id = int(max_row["m"] if max_row is not None else 0)
+
+    entries = [_wallet_audit_row_to_entry(r) for r in rows]
+    return jsonify({"entries": entries, "maxAuditId": max_audit_id}), 200
+
+
+@auth_bp.route("/api/admin/wallet-audit-log/clear", methods=["POST"])
+def admin_wallet_audit_log_clear():
+    """คง path ไว้ให้ client เก่า — ไม่ลบ audit_log (เคลียร์แสดงผลที่ frontend)"""
+    payload = request.get_json(silent=True) or {}
+    admin_email = _norm_email(payload.get("adminEmail", ""))
+    admin_password = str(payload.get("adminPassword", ""))
+
+    if not _verify_admin(admin_email, admin_password):
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"ok": True}), 200
 
 
 def _parse_iso_date(value: str) -> date | None:
@@ -414,23 +866,31 @@ def hr_list_employees():
         return err[0], err[1]
     hr_email = _norm_email(payload.get("hrEmail", ""))
 
+    _ph_audit = ",".join("?" * len(_WALLET_SAVINGS_HISTORY_ACTIONS))
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """
+            f"""
             SELECT
-              id,
-              email,
-              employee_code,
-              display_name AS fullName,
-              start_work_date,
-              appointment_date,
-              accumulated_savings
-            FROM employees
-            WHERE lower(email) != lower(?)
-            ORDER BY id DESC
+              e.id,
+              e.email,
+              e.employee_code,
+              e.national_id,
+              e.display_name AS fullName,
+              e.start_work_date,
+              e.appointment_date,
+              e.accumulated_savings,
+              (
+                SELECT MAX(al.created_at)
+                FROM audit_log al
+                WHERE al.entity_type = 'employee' AND al.entity_id = e.id
+                AND al.action IN ({_ph_audit})
+              ) AS last_updated_at
+            FROM employees e
+            WHERE lower(e.email) != lower(?)
+            ORDER BY e.id DESC
             """,
-            (hr_email,),
+            (*_WALLET_SAVINGS_HISTORY_ACTIONS, hr_email),
         )
         rows = cur.fetchall()
 
@@ -452,16 +912,26 @@ def hr_list_employees():
         def fmt_or_dash(v: str) -> str:
             return v if v else '-'
 
+        national_id = (r["national_id"] or "").strip()
+        raw_lu = r["last_updated_at"]
+        last_updated_at = (
+            str(raw_lu).strip()
+            if raw_lu is not None and str(raw_lu).strip()
+            else ""
+        )
+
         employees.append(
             {
                 "id": emp_id,
                 "role": "employee",
                 "employeeCode": employee_code,
+                "nationalId": fmt_or_dash(national_id),
                 "fullName": full_name or '—',
                 "startWorkDate": fmt_or_dash(start_work_date),
                 "appointmentDate": fmt_or_dash(appointment_date),
                 "ageWork": age_work,
                 "accumulatedSavings": int(savings),
+                "lastUpdatedAt": last_updated_at,
             }
         )
 
@@ -489,6 +959,11 @@ def hr_import_employees():
     if err:
         return err[0], err[1]
 
+    hr_email = _norm_email(str(_hr_row["email"] or ""))
+    hr_user_id = int(_hr_row["id"])
+    if not hr_email:
+        return jsonify({"error": "invalid account"}), 400
+
     rows_in = payload.get("rows")
     if not isinstance(rows_in, list):
         return jsonify({"error": "rows must be an array"}), 400
@@ -500,6 +975,25 @@ def hr_import_employees():
 
     with get_connection() as conn:
         cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, accumulated_savings, display_name, national_id, employee_code
+            FROM employees
+            """
+        )
+        by_nid_name: dict[tuple[str, str], dict] = {}
+        for er in cur.fetchall():
+            nk = _norm_national_id_digits(er["national_id"] or "")
+            mk = _norm_display_name_compare(er["display_name"] or "")
+            if nk and mk:
+                by_nid_name[(nk, mk)] = {
+                    "id": int(er["id"]),
+                    "accumulated_savings": int(er["accumulated_savings"] or 0),
+                    "display_name": str(er["display_name"] or ""),
+                    "national_id": str(er["national_id"] or ""),
+                    "employee_code": str(er["employee_code"] or ""),
+                }
+
         for i, raw in enumerate(rows_in, start=1):
             if not isinstance(raw, dict):
                 skipped += 1
@@ -514,19 +1008,100 @@ def hr_import_employees():
 
             name = str(raw.get("displayName") or "").strip()
             code = str(raw.get("employeeCode") or "").strip()
-            if not name or not code:
+            national_id = str(raw.get("nationalId") or "").strip()
+            nid_key = _norm_national_id_digits(national_id)
+            name_key = _norm_display_name_compare(name)
+
+            if not name:
                 skipped += 1
-                messages.append(f"แถว {i}: ต้องมีชื่อ-สกุลและรหัสพนักงาน")
+                messages.append(f"แถว {i}: ต้องมีชื่อ-สกุล")
+                continue
+            if not code and not nid_key:
+                skipped += 1
+                messages.append(
+                    f"แถว {i}: ต้องมีรหัสพนักงาน หรือเลขบัตรประชาชน (ใช้คู่กับชื่อจับคู่แก้ไขยอดแบบนำเข้า)"
+                )
                 continue
 
-            start_d = str(raw.get("startWorkDate") or "").strip()
-            app_d = str(raw.get("appointmentDate") or "").strip()
+            start_d = _squeeze_excel_cell(raw.get("startWorkDate"))
+            app_d = _squeeze_excel_cell(raw.get("appointmentDate"))
             try:
                 savings = int(raw.get("accumulatedSavings", 0))
             except (TypeError, ValueError):
                 savings = 0
             if savings < 0:
                 savings = 0
+
+            matched_nid = (
+                by_nid_name.get((nid_key, name_key))
+                if nid_key and name_key
+                else None
+            )
+            if matched_nid is not None:
+                cur_sav = int(matched_nid["accumulated_savings"])
+                if cur_sav == savings:
+                    skipped += 1
+                    messages.append(
+                        f"แถว {i}: ตรงเลขบัตรประชาชนและชื่อ-สกุลแล้ว แต่ยอดเงินสะสมไม่เปลี่ยน — ไม่อัปเดต"
+                    )
+                    continue
+
+                ec_out = code.strip() if code.strip() else (matched_nid.get("employee_code") or "").strip()
+                if not ec_out:
+                    skipped += 1
+                    messages.append(
+                        f"แถว {i}: จับคู่ตามเลขบัตร+ชื่อได้ แต่ไม่มีรหัสพนักงานในไฟล์และในฐานข้อมูล — ใส่รหัสใน Excel หรือให้มีรหัสในฐานข้อมูลก่อน"
+                    )
+                    continue
+
+                eid = int(matched_nid["id"])
+                cur.execute(
+                    """
+                    UPDATE employees
+                    SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?,
+                        password_hash=?, employee_code=?
+                    WHERE id=?
+                    """,
+                    (
+                        name,
+                        national_id,
+                        start_d,
+                        app_d,
+                        savings,
+                        generate_password_hash(ec_out.strip()),
+                        ec_out.strip(),
+                        eid,
+                    ),
+                )
+                updated += 1
+                _audit_append(
+                    cur,
+                    "hr",
+                    hr_email,
+                    "excel_import",
+                    "employee",
+                    eid,
+                    f"อัปเดตจาก Excel (จับคู่เลขบัตร+ชื่อ): {name[:100]} ({ec_out.strip()}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                    actor_hr_user_id=hr_user_id,
+                )
+                by_nid_name.pop((nid_key, name_key), None)
+                nk2 = _norm_national_id_digits(national_id)
+                mk2 = _norm_display_name_compare(name)
+                by_nid_name[(nk2, mk2)] = {
+                    "id": eid,
+                    "accumulated_savings": savings,
+                    "display_name": name,
+                    "national_id": national_id,
+                    "employee_code": ec_out.strip(),
+                }
+                continue
+
+            if not code:
+                skipped += 1
+                messages.append(
+                    f"แถว {i}: ไม่พบพนักงานที่ตรงเลขบัตรประชาชนและชื่อ-สกุล — ตรวจสอบข้อมูล หรือใส่รหัสพนักงานเพื่อจับคู่แบบเดิม"
+                )
+                continue
 
             cur.execute(
                 """
@@ -543,12 +1118,13 @@ def hr_import_employees():
                 cur.execute(
                     """
                     UPDATE employees
-                    SET display_name=?, start_work_date=?, appointment_date=?, accumulated_savings=?,
+                    SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?,
                         password_hash=?
                     WHERE id=?
                     """,
                     (
                         name,
+                        national_id,
                         start_d,
                         app_d,
                         savings,
@@ -557,28 +1133,74 @@ def hr_import_employees():
                     ),
                 )
                 updated += 1
+                _audit_append(
+                    cur,
+                    "hr",
+                    hr_email,
+                    "excel_import",
+                    "employee",
+                    int(ex["id"]),
+                    f"อัปเดตจาก Excel: {name[:120]} ({code}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                    actor_hr_user_id=hr_user_id,
+                )
+                erow = cur.execute(
+                    "SELECT id, accumulated_savings, display_name, national_id, employee_code FROM employees WHERE id=?",
+                    (int(ex["id"]),),
+                ).fetchone()
+                if erow:
+                    nk = _norm_national_id_digits(erow["national_id"] or "")
+                    mk = _norm_display_name_compare(erow["display_name"] or "")
+                    if nk and mk:
+                        by_nid_name[(nk, mk)] = {
+                            "id": int(erow["id"]),
+                            "accumulated_savings": int(erow["accumulated_savings"] or 0),
+                            "display_name": str(erow["display_name"] or ""),
+                            "national_id": str(erow["national_id"] or ""),
+                            "employee_code": str(erow["employee_code"] or ""),
+                        }
             else:
                 email = _hr_import_pick_email_for_code(cur, code)
                 try:
                     cur.execute(
                         """
                         INSERT INTO employees (
-                          email, password_hash, display_name, employee_code,
+                          email, password_hash, display_name, employee_code, national_id,
                           start_work_date, appointment_date, accumulated_savings
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             email,
                             generate_password_hash(code.strip()),
                             name,
                             code,
+                            national_id,
                             start_d,
                             app_d,
                             savings,
                         ),
                     )
                     created += 1
+                    new_eid = int(cur.lastrowid)
+                    _audit_append(
+                        cur,
+                        "hr",
+                        hr_email,
+                        "excel_import",
+                        "employee",
+                        new_eid,
+                        f"สร้างจาก Excel: {name[:120]} ({code}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                    )
+                    nk = _norm_national_id_digits(national_id)
+                    mk = _norm_display_name_compare(name)
+                    if nk and mk:
+                        by_nid_name[(nk, mk)] = {
+                            "id": new_eid,
+                            "accumulated_savings": savings,
+                            "display_name": name,
+                            "national_id": national_id,
+                            "employee_code": code.strip(),
+                        }
                 except sqlite3.IntegrityError:
                     skipped += 1
                     messages.append(f"แถว {i}: บันทึกไม่สำเร็จ (อีเมล/รหัสซ้ำ)")
@@ -605,10 +1227,16 @@ def hr_employee_update():
     if err:
         return err[0], err[1]
 
+    hr_email = _norm_email(str(_hr_row["email"] or ""))
+    hr_user_id = int(_hr_row["id"])
+    if not hr_email:
+        return jsonify({"error": "invalid account"}), 400
+
     emp_id = payload.get("id", None)
     full_name = str(payload.get("fullName", "")).strip()
-    start_work_date = str(payload.get("startWorkDate", "")).strip()
-    appointment_date = str(payload.get("appointmentDate", "")).strip()
+    national_id = str(payload.get("nationalId", "")).strip()
+    start_work_date = _squeeze_excel_cell(payload.get("startWorkDate"))
+    appointment_date = _squeeze_excel_cell(payload.get("appointmentDate"))
     accumulated_savings_raw = payload.get("accumulatedSavings", 0)
 
     if emp_id is None or emp_id == "":
@@ -625,23 +1253,39 @@ def hr_employee_update():
 
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM employees WHERE id=?", (emp_id,))
-        if not cur.fetchone():
+        cur.execute(
+            "SELECT id, accumulated_savings FROM employees WHERE id=?",
+            (emp_id,),
+        )
+        prev_row = cur.fetchone()
+        if not prev_row:
             return jsonify({"error": "not found"}), 404
+        prev_sav = int(prev_row["accumulated_savings"] or 0)
 
         cur.execute(
             """
             UPDATE employees
-            SET display_name=?, start_work_date=?, appointment_date=?, accumulated_savings=?
+            SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?
             WHERE id=?
             """,
             (
                 full_name,
+                national_id,
                 start_work_date,
                 appointment_date,
                 accumulated_savings,
                 emp_id,
             ),
+        )
+        _audit_append(
+            cur,
+            "hr",
+            hr_email,
+            "employee_update",
+            "employee",
+            int(emp_id),
+            f"แก้ไขข้อมูลพนักงาน: {full_name[:140]} · ยอดเงินสะสม {prev_sav:,} → {accumulated_savings:,} บาท",
+            actor_hr_user_id=hr_user_id,
         )
         conn.commit()
 
@@ -662,7 +1306,7 @@ def hr_employee_delete():
 
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, email FROM employees WHERE id=?", (emp_id,))
+        cur.execute("SELECT id, email, display_name FROM employees WHERE id=?", (emp_id,))
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "not found"}), 404
@@ -672,6 +1316,16 @@ def hr_employee_delete():
         if row_email and row_email == hr_email:
             return jsonify({"error": "cannot delete HR employee record"}), 403
 
+        dname = str(row["display_name"] or "").strip()[:180]
+        _audit_append(
+            cur,
+            "hr",
+            hr_email,
+            "employee_delete",
+            "employee",
+            int(emp_id),
+            f"ลบพนักงาน: {dname or emp_id}",
+        )
         cur.execute("DELETE FROM employees WHERE id=?", (emp_id,))
         conn.commit()
 
@@ -703,6 +1357,7 @@ def admin_dashboard():
             SELECT
               id,
               employee_code,
+              national_id,
               display_name AS fullName,
               accumulated_savings,
               appointment_date,
@@ -722,6 +1377,7 @@ def admin_dashboard():
             start_work_date = (r["start_work_date"] or '').strip()
             appointment_date = (r["appointment_date"] or '').strip()
             savings = r["accumulated_savings"] if r["accumulated_savings"] is not None else 0
+            national_id = (r["national_id"] or "").strip()
 
             age_work = '-'
             age_from = _parse_iso_date(appointment_date) or _parse_iso_date(start_work_date)
@@ -735,6 +1391,7 @@ def admin_dashboard():
                 {
                     "id": emp_id,
                     "employeeCode": employee_code,
+                    "nationalId": fmt_or_dash(national_id),
                     "fullName": full_name,
                     "startWorkDate": fmt_or_dash(start_work_date),
                     "appointmentDate": fmt_or_dash(appointment_date),
@@ -834,10 +1491,10 @@ def admin_people_list():
             where = []
             if q:
                 where.append(
-                    "(lower(email) LIKE ? OR lower(display_name) LIKE ? OR lower(employee_code) LIKE ?)"
+                    "(lower(email) LIKE ? OR lower(display_name) LIKE ? OR lower(employee_code) LIKE ? OR lower(national_id) LIKE ?)"
                 )
                 like = f"%{q}%"
-                params.extend([like, like, like])
+                params.extend([like, like, like, like])
             where_sql = "WHERE " + " AND ".join(where) if where else ""
             cur.execute(
                 f"""
@@ -847,6 +1504,7 @@ def admin_people_list():
                   email,
                   display_name AS fullName,
                   employee_code,
+                  national_id,
                   start_work_date,
                   appointment_date,
                   accumulated_savings
@@ -866,6 +1524,7 @@ def admin_people_list():
 
                 emp_id = r["id"]
                 employee_code = (r["employee_code"] or '').strip() or f'EMP{emp_id:06d}'
+                national_id = (r["national_id"] or "").strip()
 
                 people.append(
                     {
@@ -874,6 +1533,7 @@ def admin_people_list():
                         "email": r["email"],
                         "displayName": (r["fullName"] or '').strip(),
                         "employeeCode": employee_code,
+                        "nationalId": fmt_or_dash(national_id),
                         "startWorkDate": fmt_or_dash(start_work_date),
                         "appointmentDate": fmt_or_dash(appointment_date),
                         "ageWork": age_work,
@@ -898,6 +1558,7 @@ def admin_people_list():
                   email,
                   display_name AS fullName,
                   NULL AS employee_code,
+                  '' AS national_id,
                   '' AS start_work_date,
                   '' AS appointment_date,
                   0 AS accumulated_savings
@@ -915,6 +1576,7 @@ def admin_people_list():
                         "email": r["email"],
                         "displayName": (r["fullName"] or '').strip(),
                         "employeeCode": '-',
+                        "nationalId": '-',
                         "startWorkDate": '-',
                         "appointmentDate": '-',
                         "ageWork": '-',
@@ -947,8 +1609,9 @@ def admin_people_upsert():
     email = _norm_email(payload.get("email", ""))
     password = str(payload.get("password", ""))
 
-    start_work_date = str(payload.get("startWorkDate", "")).strip()
-    appointment_date = str(payload.get("appointmentDate", "")).strip()
+    start_work_date = _squeeze_excel_cell(payload.get("startWorkDate"))
+    appointment_date = _squeeze_excel_cell(payload.get("appointmentDate"))
+    national_id = str(payload.get("nationalId", "")).strip()
     accumulated_savings_raw = payload.get("accumulatedSavings", 0)
     try:
         accumulated_savings = int(accumulated_savings_raw)
@@ -980,14 +1643,21 @@ def admin_people_upsert():
             if target_role == "employee":
                 if should_update:
                     cur.execute(
+                        "SELECT accumulated_savings FROM employees WHERE id=?",
+                        (existing_id,),
+                    )
+                    prev_emp = cur.fetchone()
+                    prev_sav = int(prev_emp["accumulated_savings"] or 0) if prev_emp else 0
+                    cur.execute(
                         """
                         UPDATE employees
-                        SET email=?, display_name=?, start_work_date=?, appointment_date=?, accumulated_savings=?
+                        SET email=?, display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?
                         WHERE id=?
                         """,
                         (
                             email,
                             name,
+                            national_id,
                             start_work_date,
                             appointment_date,
                             accumulated_savings,
@@ -1011,16 +1681,26 @@ def admin_people_upsert():
                                 "UPDATE employees SET password_hash=? WHERE id=?",
                                 (generate_password_hash(ec), existing_id),
                             )
+                    _audit_append(
+                        cur,
+                        "admin",
+                        admin_email,
+                        "employee_upsert",
+                        "employee",
+                        int(existing_id),
+                        f"อัปเดตพนักงาน: {name[:130]} ({email}) · ยอดเงินสะสม {prev_sav:,} → {accumulated_savings:,} บาท",
+                    )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO employees (email, password_hash, display_name, start_work_date, appointment_date, accumulated_savings)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO employees (email, password_hash, display_name, national_id, start_work_date, appointment_date, accumulated_savings)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             email,
                             generate_password_hash("__pending__"),
                             name,
+                            national_id,
                             start_work_date,
                             appointment_date,
                             accumulated_savings,
@@ -1036,6 +1716,15 @@ def admin_people_upsert():
                         WHERE id=?
                         """,
                         (emp_code, generate_password_hash(login_secret), new_id),
+                    )
+                    _audit_append(
+                        cur,
+                        "admin",
+                        admin_email,
+                        "employee_upsert",
+                        "employee",
+                        int(new_id),
+                        f"เพิ่มพนักงาน: {name[:130]} ({email}) รหัส {emp_code} · ยอดเงินสะสม {_fmt_savings_th(accumulated_savings)}",
                     )
 
             else:  # hr
@@ -1053,6 +1742,15 @@ def admin_people_upsert():
                             "UPDATE hr_users SET password_hash=? WHERE id=?",
                             (generate_password_hash(password), existing_id),
                         )
+                    _audit_append(
+                        cur,
+                        "admin",
+                        admin_email,
+                        "hr_upsert",
+                        "hr_user",
+                        int(existing_id),
+                        f"อัปเดตบัญชี HR: {name[:160]} ({email})",
+                    )
                 else:
                     if not password:
                         return jsonify({"error": "password is required for new account"}), 400
@@ -1062,6 +1760,16 @@ def admin_people_upsert():
                         VALUES (?, ?, ?, 1)
                         """,
                         (email, generate_password_hash(password), name),
+                    )
+                    new_hr_id = int(cur.lastrowid)
+                    _audit_append(
+                        cur,
+                        "admin",
+                        admin_email,
+                        "hr_upsert",
+                        "hr_user",
+                        new_hr_id,
+                        f"เพิ่มบัญชี HR: {name[:160]} ({email})",
                     )
         except sqlite3.IntegrityError:
             return jsonify({"error": "email already exists"}), 409
@@ -1089,13 +1797,34 @@ def admin_people_delete():
     with get_connection() as conn:
         cur = conn.cursor()
         if role == "employee":
+            cur.execute(
+                "SELECT display_name, email FROM employees WHERE id=? LIMIT 1",
+                (person_id,),
+            )
+        else:
+            cur.execute(
+                "SELECT display_name, email FROM hr_users WHERE id=? LIMIT 1",
+                (person_id,),
+            )
+        prow = cur.fetchone()
+        if not prow:
+            return jsonify({"error": "not found"}), 404
+        label = str(prow["display_name"] or prow["email"] or "").strip()[:180]
+        etype = "employee" if role == "employee" else "hr_user"
+        _audit_append(
+            cur,
+            "admin",
+            admin_email,
+            "people_delete",
+            etype,
+            int(person_id),
+            f"ลบ{'พนักงาน' if role == 'employee' else 'HR'}: {label}",
+        )
+        if role == "employee":
             cur.execute("DELETE FROM employees WHERE id=?", (person_id,))
         else:
             cur.execute("DELETE FROM hr_users WHERE id=?", (person_id,))
         conn.commit()
-
-        if cur.rowcount == 0:
-            return jsonify({"error": "not found"}), 404
 
     return jsonify({"message": "deleted"}), 200
 
@@ -1177,7 +1906,7 @@ def admin_wallet_adjust():
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT accumulated_savings FROM employees WHERE id=? LIMIT 1",
+            "SELECT accumulated_savings, display_name, employee_code FROM employees WHERE id=? LIMIT 1",
             (employee_id,),
         )
         row = cur.fetchone()
@@ -1189,9 +1918,21 @@ def admin_wallet_adjust():
         if new_value < 0:
             new_value = 0
 
+        dname = str(row["display_name"] or "").strip()[:120]
+        ecode = str(row["employee_code"] or "").strip()
+
         cur.execute(
             "UPDATE employees SET accumulated_savings=? WHERE id=?",
             (new_value, employee_id),
+        )
+        _audit_append(
+            cur,
+            "admin",
+            admin_email,
+            "wallet_adjust",
+            "employee",
+            int(employee_id),
+            f"ปรับยอดเงินสะสม {delta:+,} บาท ({current:,} → {new_value:,}) — {dname or ecode or employee_id}",
         )
         conn.commit()
 

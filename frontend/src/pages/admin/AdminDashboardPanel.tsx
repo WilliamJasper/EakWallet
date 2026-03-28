@@ -8,6 +8,7 @@ type DashboardResponse = {
   latestEmployees: Array<{
     id: number
     employeeCode: string
+    nationalId: string
     fullName: string
     startWorkDate: string
     appointmentDate: string
@@ -206,6 +207,7 @@ export default function AdminDashboardPanel() {
                   <thead>
                     <tr>
                       <th>รหัสพนักงาน</th>
+                      <th>เลขบัตรประชาชน</th>
                       <th>ชื่อ-สกุล</th>
                       <th>ยอดเงินสะสม</th>
                     </tr>
@@ -214,6 +216,7 @@ export default function AdminDashboardPanel() {
                     {data.latestEmployees.map((r) => (
                       <tr key={r.id}>
                         <td>{r.employeeCode}</td>
+                        <td>{r.nationalId || '-'}</td>
                         <td>{r.fullName || '-'}</td>
                         <td>{formatNumber(r.accumulatedSavings)}</td>
                       </tr>

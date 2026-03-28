@@ -7,6 +7,7 @@ type PersonRow = {
   email: string
   displayName: string
   employeeCode: string
+  nationalId: string
   startWorkDate: string
   appointmentDate: string
   ageWork: string
@@ -28,6 +29,7 @@ function emptyForm() {
     name: '',
     email: '',
     password: '',
+    nationalId: '',
     startWorkDate: '',
     appointmentDate: '',
     accumulatedSavings: 0,
@@ -106,6 +108,7 @@ export default function AdminEmployeeManagementPanel() {
       name: row.displayName || '',
       email: row.email || '',
       password: '',
+      nationalId: row.role === 'hr' || row.nationalId === '-' ? '' : row.nationalId,
       startWorkDate: row.startWorkDate === '-' ? '' : row.startWorkDate,
       appointmentDate: row.appointmentDate === '-' ? '' : row.appointmentDate,
       accumulatedSavings: row.accumulatedSavings || 0,
@@ -126,6 +129,7 @@ export default function AdminEmployeeManagementPanel() {
       name: form.name,
       email: form.email,
       password: form.password,
+      nationalId: form.role === 'employee' ? form.nationalId : '',
       startWorkDate: form.startWorkDate,
       appointmentDate: form.appointmentDate,
       accumulatedSavings: form.accumulatedSavings,
@@ -202,7 +206,7 @@ export default function AdminEmployeeManagementPanel() {
         <div className="adminPanelTopRight">
           <input
             className="adminInput"
-            placeholder="ค้นหา email / ชื่อ / รหัสพนักงาน"
+            placeholder="ค้นหา email / ชื่อ / รหัสพนักงาน / เลขบัตรประชาชน"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -232,6 +236,7 @@ export default function AdminEmployeeManagementPanel() {
                 <th className="adminTableThEmail">อีเมล</th>
                 <th className="adminTableThName">ชื่อ-สกุล</th>
                 <th>รหัสพนักงาน</th>
+                <th>เลขบัตรประชาชน</th>
                 <th>วันเริ่มงาน</th>
                 <th>วันบรรจุ</th>
                 <th>ยอดเงินสะสม</th>
@@ -252,6 +257,7 @@ export default function AdminEmployeeManagementPanel() {
                     {row.displayName || '-'}
                   </td>
                   <td>{row.employeeCode || '-'}</td>
+                  <td>{row.nationalId || '-'}</td>
                   <td>{row.startWorkDate || '-'}</td>
                   <td>{row.appointmentDate || '-'}</td>
                   <td>{row.accumulatedSavings.toLocaleString()}</td>
@@ -322,6 +328,19 @@ export default function AdminEmployeeManagementPanel() {
                   onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
                 />
               </label>
+
+              {form.role === 'employee' ? (
+                <label className="adminField">
+                  <div className="adminFieldLabel">เลขบัตรประชาชน</div>
+                  <input
+                    className="adminInput"
+                    value={form.nationalId}
+                    onChange={(e) => setForm((s) => ({ ...s, nationalId: e.target.value }))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
+                </label>
+              ) : null}
 
               <label className="adminField">
                 <div className="adminFieldLabel">
