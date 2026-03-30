@@ -225,6 +225,7 @@
   .employeePageShell {
     font-family: 'Prompt', system-ui, -apple-system, 'Segoe UI', sans-serif;
     background: #f4f5f7;
+    overflow-x: clip;
   }
 
   .employeePageShell > .employeeSidebarDesktop {
@@ -232,20 +233,23 @@
   }
 
   .employeeAdminContent.adminContent {
-    padding: 0 0 32px;
+    padding: 0 0 max(28px, calc(12px + env(safe-area-inset-bottom, 0px)));
     min-height: 100svh;
+    min-height: 100dvh;
+    box-sizing: border-box;
   }
 
   .employeeAdminContent .employeeMain {
-    padding-left: 14px;
-    padding-right: 14px;
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
   }
 
   .employeeMobileTopBar {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 16px;
+    padding: max(10px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 12px
+      max(14px, env(safe-area-inset-left, 0px));
     position: sticky;
     top: 0;
     z-index: 40;
@@ -289,15 +293,18 @@
   }
 
   .employeeMobileTopBarPad {
-    width: 40px;
+    width: 44px;
+    min-height: 44px;
     flex-shrink: 0;
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     position: relative;
   }
 
   .employeeMobileTopBarSpacer {
-    width: 40px;
+    width: 44px;
+    min-width: 44px;
     flex-shrink: 0;
   }
 
@@ -316,8 +323,10 @@
   }
 
   .employeeMobileMenuBtn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     border-radius: 12px;
     border: 1px solid rgba(229, 228, 231, 0.95);
     background: #fff;
@@ -327,36 +336,42 @@
     justify-content: center;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 
   .employeeMobileMenuDropdown {
     position: absolute;
     right: 0;
     top: calc(100% + 8px);
-    min-width: 220px;
+    min-width: min(260px, calc(100vw - 32px));
+    max-width: calc(100vw - 24px);
     background: #fff;
     border: 1px solid rgba(229, 228, 231, 0.95);
     border-radius: 14px;
     box-shadow: 0 14px 32px rgba(8, 6, 13, 0.12);
-    padding: 6px;
+    padding: 8px;
     z-index: 50;
   }
 
   .employeeMobileMenuItem {
-    display: block;
+    display: flex;
+    align-items: center;
     width: 100%;
     text-align: left;
     border: none;
     background: transparent;
-    padding: 12px 14px;
-    border-radius: 10px;
-    font-size: 14px;
+    min-height: 48px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 15px;
     font-weight: 700;
     color: #1a2b4b;
     cursor: pointer;
     text-decoration: none;
     font-family: inherit;
     box-sizing: border-box;
+    line-height: 1.35;
+    touch-action: manipulation;
   }
 
   a.employeeMobileMenuItem {
@@ -378,7 +393,7 @@
 
   .employeeMobileDash {
     display: block;
-    padding: 14px 0 0;
+    padding: 12px 0 0;
   }
 
   .employeeMobHero {
@@ -416,6 +431,7 @@
     -webkit-tap-highlight-color: transparent;
     box-sizing: border-box;
     align-self: center;
+    touch-action: manipulation;
   }
 
   .employeeMobHeroAvatar:focus-visible {
@@ -534,7 +550,7 @@
   }
 
   .employeeMobSavingsNum {
-    font-size: 36px;
+    font-size: clamp(28px, 8.5vw, 36px);
     font-weight: 800;
     color: #1a2b4b;
     line-height: 1;
@@ -730,12 +746,31 @@
   }
 
   .employeeMain--walletMobile {
-    padding-left: 0;
-    padding-right: 0;
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .employeeMain--walletMobile .walletSavingsHistoryWrap {
     padding-top: 4px;
+  }
+
+  .walletSavingsHistoryWrap--employee {
+    max-width: none;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .auditLogSection--employeeWallet .auditLogClearHistoryBtn {
+    min-height: 44px;
+    padding-left: 16px;
+    padding-right: 16px;
+    touch-action: manipulation;
+  }
+
+  .auditLogSection--employeeWallet .auditLogMonthSelect {
+    min-height: 44px;
+    font-size: 16px;
   }
 }
 
@@ -782,6 +817,38 @@
   }
 }
 
+@media (max-width: 400px) {
+  .employeeMobHeroRow {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .employeeMobHeroAvatar {
+    align-self: center;
+  }
+
+  .employeeWalletPageHeroRow {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .employeeWalletPageHeroAvatar {
+    align-self: center;
+  }
+
+  .employeeWalletPageHeroTitle {
+    font-size: clamp(1.2rem, 6vw, 1.5rem);
+  }
+}
+
+@media (max-width: 380px) {
+  .employeeMobDateGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* พนักงาน — หน้าประวัติยอดเงินสะสม */
 .walletSavingsHistoryWrap--employee {
   max-width: 920px;
@@ -822,6 +889,7 @@
   -webkit-tap-highlight-color: transparent;
   box-sizing: border-box;
   align-self: center;
+  touch-action: manipulation;
 }
 
 .employeeWalletPageHeroAvatar:focus-visible {
@@ -988,6 +1056,8 @@
   background: rgba(246, 246, 248, 0.95);
   border: 1px solid rgba(229, 228, 231, 0.9);
   margin-bottom: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .employeeWalletEntryBalanceRow {
