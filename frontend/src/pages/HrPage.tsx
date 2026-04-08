@@ -5,6 +5,7 @@ import '../styles/pages/hr-page.css'
 import { parseHrEmployeeWorkbook } from './hr/hrExcelImport'
 import { API_BASE_URL } from '../config/api'
 import WalletSavingsHistoryView from './WalletSavingsHistoryView'
+import HrResetPasswordAlertsView from './hr/HrResetPasswordAlertsView'
 
 type HrEmployeeRow = {
   id: number
@@ -15,6 +16,7 @@ type HrEmployeeRow = {
   startWorkDate: string
   appointmentDate: string
   accumulatedSavings: number
+  status: 'Active' | 'Inactive'
   lastUpdatedAt?: string
 }
 
@@ -41,6 +43,15 @@ function HistoryMenuIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="10" />
       <path d="M12 6v6l4 2" />
+    </svg>
+  )
+}
+
+function BellIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   )
 }
@@ -140,6 +151,7 @@ export default function HrPage() {
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [actionBusyId, setActionBusyId] = useState<number | null>(null)
+  const [resetRequestsCount, setResetRequestsCount] = useState(0)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editRowId, setEditRowId] = useState<number | null>(null)
@@ -149,12 +161,14 @@ export default function HrPage() {
     startWorkDate: string
     appointmentDate: string
     accumulatedSavings: number
+    status: 'Active' | 'Inactive'
   }>({
     fullName: '',
     nationalId: '',
     startWorkDate: '',
     appointmentDate: '',
     accumulatedSavings: 0,
+    status: 'Active',
   })
 
   const loadEmployees = useCallback(async () => {
@@ -194,6 +208,24 @@ export default function HrPage() {
     }
   }, [])
 
+  const loadResetRequestsCount = useCallback(async () => {
+    const creds = getHrCreds()
+    if (!creds) return
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/hr/reset-password-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creds),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && Array.isArray(data?.alerts)) {
+        setResetRequestsCount(data.alerts.length)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
   useEffect(() => {
     const role = localStorage.getItem('authRole') || sessionStorage.getItem('authRole')
     if (role !== 'hr') {
@@ -201,7 +233,16 @@ export default function HrPage() {
       return
     }
     loadEmployees()
-  }, [loadEmployees, navigate])
+    loadResetRequestsCount()
+  }, [loadEmployees, loadResetRequestsCount, navigate])
+
+  // Polling for notification badge count
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadResetRequestsCount()
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [loadResetRequestsCount])
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -336,6 +377,7 @@ export default function HrPage() {
       appointmentDate:
         row.appointmentDate === '—' || row.appointmentDate === '-' ? '' : row.appointmentDate,
       accumulatedSavings: Number(row.accumulatedSavings ?? 0),
+      status: (row.status as any) || 'Active',
     })
     setEditOpen(true)
   }
@@ -365,6 +407,7 @@ export default function HrPage() {
           startWorkDate: editForm.startWorkDate.trim(),
           appointmentDate: editForm.appointmentDate.trim(),
           accumulatedSavings: editForm.accumulatedSavings,
+          status: editForm.status,
         }),
       })
       const data = await res.json().catch(() => null)
@@ -457,6 +500,22 @@ export default function HrPage() {
               <UsersIcon />
             </span>
             <span className="adminSidebarNavLabel adminSidebarNavLabel--singleLine">จัดการพนักงาน</span>
+          </NavLink>
+          <NavLink
+            to="/hr/reset-password-alerts"
+            className={({ isActive }) =>
+              `adminSidebarNavItem ${isActive ? 'adminSidebarNavItem--active' : ''}`
+            }
+          >
+            <span className="adminSidebarNavIcon" aria-hidden="true">
+              <BellIcon />
+            </span>
+            <span className="adminSidebarNavLabel adminSidebarNavLabel--singleLine">แจ้งเตือนResetPassword</span>
+            {resetRequestsCount > 0 && (
+              <span className="adminSidebarBadge adminSidebarBadge--red">
+                {resetRequestsCount}
+              </span>
+            )}
           </NavLink>
           <NavLink
             to="/hr/wallet-history"
@@ -631,6 +690,7 @@ export default function HrPage() {
                     <th>วันเริ่มงาน</th>
                     <th>วันบรรจุ</th>
                     <th>ยอดเงินสะสม</th>
+                    <th>สถานะ</th>
                     <th className="hrTableThLastUpdated">อัพเดทล่าสุด</th>
                     <th aria-label="การดำเนินการ" />
                   </tr>
@@ -661,6 +721,11 @@ export default function HrPage() {
                         <td className="hrTableDateCell">{displayOneLineDate(row.startWorkDate)}</td>
                         <td className="hrTableDateCell">{displayOneLineDate(row.appointmentDate)}</td>
                         <td>{row.accumulatedSavings.toLocaleString()}</td>
+                        <td>
+                          <span className={`hrStatusBadge ${row.status === 'Inactive' ? 'hrStatusBadge--inactive' : 'hrStatusBadge--active'}`}>
+                            {row.status === 'Inactive' ? 'Inactive' : 'Active'}
+                          </span>
+                        </td>
                         <td
                           className="hrTableLastUpdatedCell"
                           title={row.lastUpdatedAt?.trim() ? formatLastUpdatedAt(row.lastUpdatedAt) : undefined}
@@ -702,6 +767,24 @@ export default function HrPage() {
               </table>
             </div>
           </div>
+                </main>
+              </>
+            }
+          />
+          <Route
+            path="reset-password-alerts"
+            element={
+              <>
+                <header className="adminHeader">
+                  <div className="hrPageHeaderWrap">
+                    <h1 className="adminHeaderTitle">แจ้งเตือน Reset Password</h1>
+                    <p className="hrPageSubtle">
+                      หน้านี้สร้างเตรียมไว้สำหรับรับการแจ้งเตือนพนักงานที่ต้องการรีเซ็ตรหัสผ่าน
+                    </p>
+                  </div>
+                </header>
+                <main className="adminMain">
+                  <HrResetPasswordAlertsView />
                 </main>
               </>
             }
@@ -802,6 +885,20 @@ export default function HrPage() {
                     setEditForm((s) => ({ ...s, appointmentDate: e.target.value }))
                   }
                 />
+              </label>
+
+              <label className="adminField">
+                <div className="adminFieldLabel">สถานะ</div>
+                <select
+                  className="adminSelect"
+                  value={editForm.status}
+                  onChange={(e) =>
+                    setEditForm((s) => ({ ...s, status: e.target.value as any }))
+                  }
+                >
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
               </label>
             </div>
 

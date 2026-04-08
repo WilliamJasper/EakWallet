@@ -235,6 +235,11 @@ a.adminSidebarNavItem {
   color: #3a2a00;
 }
 
+.adminSidebarBadge--red {
+  background: #ef4444;
+  color: #fff;
+}
+
 .adminSidebar--closed .adminSidebarBadge {
   position: relative;
   right: 2px;

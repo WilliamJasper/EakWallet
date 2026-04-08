@@ -35,6 +35,10 @@ export default function LoginForm() {
 
       const data = await res.json().catch(() => null)
       if (!res.ok) {
+        if (data?.error === 'inactive_account') {
+          window.alert('คุณไม่มีสิทธิ์เข้าดู EakWallet')
+          return
+        }
         const text =
           (typeof data?.message === 'string' && data.message.trim()) ||
           (typeof data?.error === 'string' && data.error) ||
@@ -43,6 +47,15 @@ export default function LoginForm() {
       }
 
       const nextRole = data?.role as string
+
+      if (nextRole === 'employee' && data?.needsPasswordReset) {
+        navigate('/reset-employee-password', {
+          replace: true,
+          state: { loginData: data, idTrimmed: idTrim, password }
+        })
+        return
+      }
+
       if (data?.token) {
         if (rememberMe) {
           localStorage.setItem('authToken', data.token)
@@ -163,8 +176,7 @@ export default function LoginForm() {
           href="#"
           onClick={(e) => {
             e.preventDefault()
-            setError(null)
-            setMessage('ยังไม่ได้ทำระบบลืมรหัสผ่านในตอนนี้')
+            navigate('/forgot-employee-password')
           }}
         >
           Forgot password?

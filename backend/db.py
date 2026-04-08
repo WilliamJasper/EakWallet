@@ -35,7 +35,9 @@ def init_db() -> None:
               national_id TEXT NOT NULL DEFAULT '',
               start_work_date TEXT NOT NULL DEFAULT '',
               appointment_date TEXT NOT NULL DEFAULT '',
-              accumulated_savings INTEGER NOT NULL DEFAULT 0
+              accumulated_savings INTEGER NOT NULL DEFAULT 0,
+              password_changed INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'Active'
             );
             """
         )
@@ -62,6 +64,17 @@ def init_db() -> None:
               entity_id INTEGER,
               summary TEXT NOT NULL DEFAULT '',
               actor_hr_user_id INTEGER
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_requests (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              employee_id INTEGER NOT NULL,
+              request_date TEXT NOT NULL DEFAULT (datetime('now')),
+              status TEXT NOT NULL DEFAULT 'pending',
+              FOREIGN KEY(employee_id) REFERENCES employees(id)
             );
             """
         )
@@ -95,6 +108,14 @@ def init_db() -> None:
         if "accumulated_savings" not in emp_columns:
             conn.execute(
                 "ALTER TABLE employees ADD COLUMN accumulated_savings INTEGER NOT NULL DEFAULT 0;"
+            )
+        if "password_changed" not in emp_columns:
+            conn.execute(
+                "ALTER TABLE employees ADD COLUMN password_changed INTEGER NOT NULL DEFAULT 0;"
+            )
+        if "status" not in emp_columns:
+            conn.execute(
+                "ALTER TABLE employees ADD COLUMN status TEXT NOT NULL DEFAULT 'Active';"
             )
 
         # hr_users: add missing columns for older SQLite files
@@ -131,6 +152,22 @@ def init_db() -> None:
         audit_cols = {row["name"] for row in cur.fetchall()}
         if audit_cols and "actor_hr_user_id" not in audit_cols:
             conn.execute("ALTER TABLE audit_log ADD COLUMN actor_hr_user_id INTEGER;")
+
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='password_reset_requests';"
+        )
+        if cur.fetchone() is None:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS password_reset_requests (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  employee_id INTEGER NOT NULL,
+                  request_date TEXT NOT NULL DEFAULT (datetime('now')),
+                  status TEXT NOT NULL DEFAULT 'pending',
+                  FOREIGN KEY(employee_id) REFERENCES employees(id)
+                );
+                """
+            )
 
         conn.commit()
 

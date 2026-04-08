@@ -219,6 +219,10 @@
   box-sizing: border-box;
 }
 
+.authStandalone--left {
+  right: 50%;
+}
+
 .socialRow {
   display: flex;
   gap: 10px;
@@ -311,22 +315,58 @@
     position: relative;
     left: 0 !important;
     width: 100%;
-    min-height: 40svh;
+    min-height: 28svh;
     transition: none;
   }
 
   .authPanel,
   .authPanel--login,
-  .authPanel--signup {
+  .authPanel--signup,
+  .authStandalone {
     position: relative;
     width: 100%;
     left: auto;
     right: auto;
-    padding: 24px 16px;
+    top: auto;
+    bottom: auto;
+    padding: 16px 16px 18px;
+  }
+
+  /* ลดพื้นที่ว่างโดยซ่อน panel ที่ไม่ได้ใช้งาน */
+  .authRoot--layout-login .authPanel--signup,
+  .authRoot--layout-signup .authPanel--login {
+    display: none;
+  }
+
+  /* ให้ card กระชับขึ้น */
+  .authCardHeader {
+    margin-bottom: 14px;
+  }
+
+  .loginBottomText,
+  .signupBottomText {
+    margin-top: 10px;
   }
 
   .authRoot {
     display: flex;
     flex-direction: column;
   }
+
+  .authStandalone--left {
+    right: 0;
+  }
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(170, 59, 255, 0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

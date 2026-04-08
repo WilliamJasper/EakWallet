@@ -483,3 +483,23 @@
     min-width: 180px;
   }
 }
+
+.hrStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.hrStatusBadge--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.hrStatusBadge--inactive {
+  background: rgba(225, 29, 72, 0.1);
+  color: #e11d48;
+}

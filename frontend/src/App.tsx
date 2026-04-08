@@ -5,6 +5,8 @@ import HrPage from './pages/HrPage'
 import EmployeePage from './pages/EmployeePage'
 import ForgotHrPasswordPage from './pages/ForgotHrPasswordPage'
 import ResetHrPasswordPage from './pages/ResetHrPasswordPage'
+import ResetEmployeePasswordPage from './pages/ResetEmployeePasswordPage'
+import ForgotEmployeePasswordPage from './pages/ForgotEmployeePasswordPage'
 import './styles/app.css'
 
 export default function App() {
@@ -21,6 +23,14 @@ export default function App() {
           <Route
             path="/reset-hr-password"
             element={<ResetHrPasswordPage />}
+          />
+          <Route
+            path="/reset-employee-password"
+            element={<ResetEmployeePasswordPage />}
+          />
+          <Route
+            path="/forgot-employee-password"
+            element={<ForgotEmployeePasswordPage />}
           />
         </Route>
         <Route path="/admin" element={<AdminPage />} />

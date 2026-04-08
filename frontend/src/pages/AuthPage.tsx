@@ -19,7 +19,9 @@ export default function AuthPage() {
   const pathSignup = location.pathname === '/signup'
   const hidePanels =
     location.pathname === '/forgot-hr-password' ||
-    location.pathname === '/reset-hr-password'
+    location.pathname === '/reset-hr-password' ||
+    location.pathname === '/reset-employee-password' ||
+    location.pathname === '/forgot-employee-password'
   const layout = pathSignup ? 'signup' : 'login'
 
   const [loginLeaving, setLoginLeaving] = useState(false)

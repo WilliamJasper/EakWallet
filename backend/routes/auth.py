@@ -1,3 +1,4 @@
+# pyre-ignore-all-errors
 import re
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -170,7 +171,7 @@ def _employee_login_response(display_name: str, employee_code: str):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, password_hash
+            SELECT id, password_hash, password_changed, status
             FROM employees
             WHERE lower(trim(display_name)) = lower(trim(?))
             """,
@@ -179,19 +180,31 @@ def _employee_login_response(display_name: str, employee_code: str):
         rows = cur.fetchall()
 
     for er in rows:
-        if check_password_hash(er["password_hash"], employee_code):
-            token = "dev-token"
-            return (
-                jsonify(
-                    {
-                        "message": "login success",
-                        "token": token,
-                        "role": "employee",
-                        "employeeId": int(er["id"]),
-                    }
-                ),
-                200,
-            )
+            if check_password_hash(er["password_hash"], employee_code):
+                if er["status"] == "Inactive":
+                    return (
+                        jsonify(
+                            {
+                                "error": "inactive_account",
+                                "message": "คุณไม่มีสิทธิ์เข้าดู EakWallet",
+                            }
+                        ),
+                        403,
+                    )
+                token = "dev-token"
+                num_changed = er["password_changed"] if "password_changed" in er.keys() and er["password_changed"] is not None else 0
+                return (
+                    jsonify(
+                        {
+                            "message": "login success",
+                            "token": token,
+                            "role": "employee",
+                            "employeeId": int(er["id"]),
+                            "needsPasswordReset": int(num_changed) == 0,
+                        }
+                    ),
+                    200,
+                )
     return None
 
 
@@ -280,6 +293,53 @@ def login():
         200,
     )
 
+
+@auth_bp.route("/api/employee/change-password", methods=["POST"])
+def employee_change_password():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("employeeName", "")).strip()
+    current_password = str(payload.get("currentPassword", "")).strip()
+    new_password = str(payload.get("newPassword", "")).strip()
+
+    if not name or not current_password or not new_password:
+        return jsonify({"error": "missing required fields"}), 400
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, password_hash
+            FROM employees
+            WHERE lower(trim(display_name)) = lower(trim(?))
+            """,
+            (name,),
+        )
+        rows = cur.fetchall()
+
+        emp_row = None
+        for r in rows:
+            if check_password_hash(r["password_hash"], current_password):
+                emp_row = r
+                break
+
+        if not emp_row:
+            return jsonify({"error": "invalid credentials"}), 401
+        
+        new_hash = generate_password_hash(new_password)
+        cur.execute(
+            "UPDATE employees SET password_hash=?, password_changed=1 WHERE id=?",
+            (new_hash, emp_row["id"])
+        )
+        conn.commit()
+
+        token = "dev-token"
+        return jsonify({
+            "message": "password changed successfully",
+            "token": token,
+            "role": "employee",
+            "employeeId": int(emp_row["id"]),
+            "needsPasswordReset": False
+        }), 200
 
 @auth_bp.route("/api/employee/me", methods=["POST"])
 def employee_me():
@@ -880,6 +940,7 @@ def hr_list_employees():
               e.start_work_date,
               e.appointment_date,
               e.accumulated_savings,
+              e.status,
               (
                 SELECT MAX(al.created_at)
                 FROM audit_log al
@@ -931,6 +992,7 @@ def hr_list_employees():
                 "appointmentDate": fmt_or_dash(appointment_date),
                 "ageWork": age_work,
                 "accumulatedSavings": int(savings),
+                "status": r["status"] or "Active",
                 "lastUpdatedAt": last_updated_at,
             }
         )
@@ -1238,6 +1300,7 @@ def hr_employee_update():
     start_work_date = _squeeze_excel_cell(payload.get("startWorkDate"))
     appointment_date = _squeeze_excel_cell(payload.get("appointmentDate"))
     accumulated_savings_raw = payload.get("accumulatedSavings", 0)
+    status = str(payload.get("status", "Active")).strip()
 
     if emp_id is None or emp_id == "":
         return jsonify({"error": "id is required"}), 400
@@ -1265,7 +1328,7 @@ def hr_employee_update():
         cur.execute(
             """
             UPDATE employees
-            SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?
+            SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?, status=?
             WHERE id=?
             """,
             (
@@ -1274,6 +1337,7 @@ def hr_employee_update():
                 start_work_date,
                 appointment_date,
                 accumulated_savings,
+                status,
                 emp_id,
             ),
         )
@@ -1938,3 +2002,178 @@ def admin_wallet_adjust():
 
     return jsonify({"message": "ok", "newBalance": new_value}), 200
 
+
+# ----------------------------------------------------------------------------
+# Employee Password Reset Features
+# ----------------------------------------------------------------------------
+
+@auth_bp.route("/api/employee/forgot-password", methods=["POST"])
+def employee_forgot_password():
+    data = request.get_json() or {}
+    full_name = data.get("fullName", "").strip()
+    national_id = data.get("nationalId", "").strip()
+
+    if not full_name or not national_id:
+        return jsonify({"error": "กรุณากรอกชื่อและเลขบัตรประชาชนให้ครบถ้วน"}), 400
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # ใช้ lower(trim()) เพื่อให้เหมือนกับที่ login ทำ (แก้บั๊กพนักงานหาชื่อไม่เจอเพราะช่องว่าง)
+        cur.execute(
+            "SELECT id FROM employees WHERE lower(trim(display_name)) = lower(trim(?)) AND national_id = ? LIMIT 1",
+            (full_name, national_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "ไม่พบพนักงานในระบบด้วยชื่อและเลขบัตรประชาชนนี้"}), 404
+
+        emp_id = row["id"]
+        
+        cur.execute("SELECT id FROM password_reset_requests WHERE employee_id = ? AND status = 'pending'", (emp_id,))
+        if cur.fetchone():
+            return jsonify({"error": "ท่านได้ส่งคำร้องขอเปลี่ยนรหัสผ่านไปแล้ว กรุณารอทางฝ่ายบุคคลดำเนินการ"}), 400
+
+        cur.execute(
+            """INSERT INTO password_reset_requests (employee_id, request_date, status)
+               VALUES (?, datetime('now', '+7 hours'), 'pending')""",
+            (emp_id,)
+        )
+        conn.commit()
+
+    return jsonify({"message": "success"})
+
+@auth_bp.route("/api/employee/reset-status", methods=["POST"])
+def employee_reset_status():
+    data = request.get_json() or {}
+    full_name = data.get("fullName", "").strip()
+    national_id = data.get("nationalId", "").strip()
+
+    if not full_name or not national_id:
+        return jsonify({"error": "ข้อมูลไม่ครบถ้วน"}), 400
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT p.id, p.status 
+            FROM password_reset_requests p
+            JOIN employees e ON p.employee_id = e.id
+            WHERE lower(trim(e.display_name)) = lower(trim(?)) 
+              AND e.national_id = ?
+              AND p.status IN ('pending', 'approved')
+            ORDER BY p.id DESC LIMIT 1
+            """,
+            (full_name, national_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"status": "none"})
+        
+        return jsonify({"status": row["status"], "requestId": row["id"]})
+
+
+@auth_bp.route("/api/employee/reset-complete", methods=["POST"])
+def employee_reset_complete():
+    data = request.get_json() or {}
+    request_id = data.get("requestId")
+    new_password = data.get("newPassword")
+
+    if not request_id or not new_password:
+        return jsonify({"error": "ข้อมูลไม่ครบถ้วน"}), 400
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT employee_id FROM password_reset_requests WHERE id = ? AND status = 'approved'", 
+            (request_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "คำร้องยังไม่ได้รับการอนุมัติ หรือไม่มีคำร้องนี้ในระบบ"}), 400
+        
+        emp_id = row["employee_id"]
+        hashed_pw = generate_password_hash(new_password)
+        
+        cur.execute("UPDATE employees SET password_hash = ?, password_changed = 1 WHERE id = ?", (hashed_pw, emp_id))
+        cur.execute("UPDATE password_reset_requests SET status = 'completed' WHERE id = ?", (request_id,))
+        conn.commit()
+
+    return jsonify({"message": "success"})
+
+
+# HR Authentication helper
+def _check_hr():
+    data = request.get_json() or {}
+    hr_email = data.get("hrEmail", "").strip()
+    hr_password = data.get("hrPassword", "")
+    if not hr_email or not hr_password:
+        return jsonify({"error": "ไม่พบข้อมูล HR"}), 401
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, password_hash, approved FROM hr_users WHERE email = ? LIMIT 1", (hr_email,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "ไม่พบ HR"}), 401
+        
+        is_approved = row["approved"]
+        if not is_approved:
+            return jsonify({"error": "บัญชี HR ยังไม่ได้รับอนุมัติ"}), 403
+            
+        h = row["password_hash"]
+        if not check_password_hash(h, hr_password):
+            return jsonify({"error": "รหัสผ่าน HR ไม่ถูกต้อง"}), 401
+            
+        return None, row["id"]
+
+
+@auth_bp.route("/api/hr/reset-password-requests", methods=["POST"])
+def hr_get_reset_password_requests():
+    err, hr_id = _check_hr()
+    if err: return err
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT p.id, p.employee_id, p.request_date, e.display_name, e.employee_code, e.national_id
+            FROM password_reset_requests p
+            JOIN employees e ON p.employee_id = e.id
+            WHERE p.status = 'pending'
+            ORDER BY p.request_date DESC
+            """
+        )
+        rows = cur.fetchall()
+        alerts = []
+        for row in rows:
+            alerts.append({
+                "id": row["id"],
+                "employeeId": row["employee_id"],
+                "role": "employee",
+                "requestDate": row["request_date"],
+                "fullName": row["display_name"],
+                "employeeCode": row["employee_code"],
+                "nationalId": row["national_id"],
+            })
+    return jsonify({"alerts": alerts})
+
+
+@auth_bp.route("/api/hr/reset-employee-password/resolve", methods=["POST"])
+def hr_resolve_employee_reset_password():
+    err, hr_id = _check_hr()
+    if err: return err
+
+    data = request.get_json() or {}
+    request_id = data.get("requestId")
+    employee_id = data.get("employeeId")
+    new_password = data.get("newPassword")
+
+    if not request_id or not employee_id or not new_password:
+        return jsonify({"error": "ข้อมูลไม่ครบถ้วน"}), 400
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE password_reset_requests SET status = 'approved' WHERE id = ?", (request_id,))
+        conn.commit()
+
+    return jsonify({"message": "success"})
