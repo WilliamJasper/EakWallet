@@ -958,27 +958,27 @@ def hr_list_employees():
     employees = []
     for r in rows:
         emp_id = r["id"]
-        employee_code = (r["employee_code"] or '').strip() or f'EMP{emp_id:06d}'
-        full_name = (r["fullName"] or '').strip()
+        employee_code = (r["employee_code"] or "").strip() or f"EMP{emp_id:06d}"
+        full_name = (r["fullName"] or "").strip()
 
-        start_work_date = (r["start_work_date"] or '').strip()
-        appointment_date = (r["appointment_date"] or '').strip()
-        savings = r["accumulated_savings"] if r["accumulated_savings"] is not None else 0
+        start_work_date = (r["start_work_date"] or "").strip()
+        appointment_date = (r["appointment_date"] or "").strip()
+        savings = (
+            r["accumulated_savings"] if r["accumulated_savings"] is not None else 0
+        )
 
-        age_work = '-'
+        age_work = "-"
         age_from = _parse_iso_date(appointment_date) or _parse_iso_date(start_work_date)
         if age_from:
             age_work = _format_age_work(age_from)
 
         def fmt_or_dash(v: str) -> str:
-            return v if v else '-'
+            return v if v else "-"
 
         national_id = (r["national_id"] or "").strip()
         raw_lu = r["last_updated_at"]
         last_updated_at = (
-            str(raw_lu).strip()
-            if raw_lu is not None and str(raw_lu).strip()
-            else ""
+            str(raw_lu).strip() if raw_lu is not None and str(raw_lu).strip() else ""
         )
 
         employees.append(
@@ -987,7 +987,7 @@ def hr_list_employees():
                 "role": "employee",
                 "employeeCode": employee_code,
                 "nationalId": fmt_or_dash(national_id),
-                "fullName": full_name or '—',
+                "fullName": full_name or "—",
                 "startWorkDate": fmt_or_dash(start_work_date),
                 "appointmentDate": fmt_or_dash(appointment_date),
                 "ageWork": age_work,
@@ -1000,18 +1000,17 @@ def hr_list_employees():
     return jsonify({"employees": employees}), 200
 
 
-def _hr_import_pick_email_for_code(cur: sqlite3.Cursor, code: str) -> str:
+def _hr_import_pick_email_bulk(used_emails: set[str], code: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "", _norm_email(code).replace("@", ""))[:48]
     if not slug:
         slug = "emp"
     candidate = f"{slug}@hr-import.local"
     n = 0
-    while True:
-        cur.execute("SELECT 1 FROM employees WHERE lower(email)=lower(?) LIMIT 1", (candidate,))
-        if not cur.fetchone():
-            return candidate
+    while candidate.lower() in used_emails:
         n += 1
         candidate = f"{slug}_{n}@hr-import.local"
+    used_emails.add(candidate.lower())
+    return candidate
 
 
 @auth_bp.route("/api/hr/employees/import", methods=["POST"])
@@ -1037,235 +1036,174 @@ def hr_import_employees():
 
     with get_connection() as conn:
         cur = conn.cursor()
+
+        # 1. Bulk Load data for fast lookup
         cur.execute(
-            """
-            SELECT id, accumulated_savings, display_name, national_id, employee_code
-            FROM employees
-            """
+            "SELECT id, email, display_name, national_id, employee_code, accumulated_savings, password_hash FROM employees"
         )
+        all_emp = cur.fetchall()
+
+        used_emails = {str(er["email"]).lower() for er in all_emp if er["email"]}
+
         by_nid_name: dict[tuple[str, str], dict] = {}
-        for er in cur.fetchall():
-            nk = _norm_national_id_digits(er["national_id"] or "")
-            mk = _norm_display_name_compare(er["display_name"] or "")
-            if nk and mk:
-                by_nid_name[(nk, mk)] = {
-                    "id": int(er["id"]),
-                    "accumulated_savings": int(er["accumulated_savings"] or 0),
-                    "display_name": str(er["display_name"] or ""),
-                    "national_id": str(er["national_id"] or ""),
-                    "employee_code": str(er["employee_code"] or ""),
-                }
+        by_code: dict[str, dict] = {}
+
+        for er in all_emp:
+            rec = {
+                "id": int(er["id"]),
+                "accumulated_savings": int(er["accumulated_savings"] or 0),
+                "display_name": str(er["display_name"] or ""),
+                "national_id": str(er["national_id"] or ""),
+                "employee_code": str(er["employee_code"] or "").strip(),
+                "password_hash": str(er["password_hash"] or ""),
+            }
+            nid_key = _norm_national_id_digits(rec["national_id"])
+            name_key = _norm_display_name_compare(rec["display_name"])
+            if nid_key and name_key:
+                by_nid_name[(nid_key, name_key)] = rec
+
+            code_key = rec["employee_code"].lower()
+            if code_key:
+                by_code[code_key] = rec
+
+        audit_entries = []
 
         for i, raw in enumerate(rows_in, start=1):
             if not isinstance(raw, dict):
                 skipped += 1
-                messages.append(f"แถว {i}: ข้าม (รูปแบบไม่ถูกต้อง)")
                 continue
 
             role = str(raw.get("role") or "").strip().lower()
             if role in ("hr", "admin"):
                 skipped += 1
-                messages.append(f"แถว {i}: ข้าม role {role}")
                 continue
 
             name = str(raw.get("displayName") or "").strip()
             code = str(raw.get("employeeCode") or "").strip()
             national_id = str(raw.get("nationalId") or "").strip()
-            nid_key = _norm_national_id_digits(national_id)
-            name_key = _norm_display_name_compare(name)
 
             if not name:
                 skipped += 1
-                messages.append(f"แถว {i}: ต้องมีชื่อ-สกุล")
+                messages.append(f"แถว {i}: ข้ามเนื่องจากไม่มีชื่อ")
                 continue
-            if not code and not nid_key:
-                skipped += 1
-                messages.append(
-                    f"แถว {i}: ต้องมีรหัสพนักงาน หรือเลขบัตรประชาชน (ใช้คู่กับชื่อจับคู่แก้ไขยอดแบบนำเข้า)"
-                )
-                continue
+
+            nid_key = _norm_national_id_digits(national_id)
+            name_key = _norm_display_name_compare(name)
+            code_key = code.lower()
+
+            # 2. Matching Logic
+            target_rec = None
+            match_type = ""
+
+            # Case A: Match by National ID + Name
+            if nid_key and name_key:
+                target_rec = by_nid_name.get((nid_key, name_key))
+                if target_rec:
+                    match_type = "nid_name"
+
+            # Case B: Match by Employee Code (Fallback)
+            if not target_rec and code_key:
+                target_rec = by_code.get(code_key)
+                if target_rec:
+                    match_type = "code"
 
             start_d = _squeeze_excel_cell(raw.get("startWorkDate"))
             app_d = _squeeze_excel_cell(raw.get("appointmentDate"))
             try:
                 savings = int(raw.get("accumulatedSavings", 0))
-            except (TypeError, ValueError):
+            except:
                 savings = 0
             if savings < 0:
                 savings = 0
 
-            matched_nid = (
-                by_nid_name.get((nid_key, name_key))
-                if nid_key and name_key
-                else None
-            )
-            if matched_nid is not None:
-                cur_sav = int(matched_nid["accumulated_savings"])
-                if cur_sav == savings:
-                    skipped += 1
-                    messages.append(
-                        f"แถว {i}: ตรงเลขบัตรประชาชนและชื่อ-สกุลแล้ว แต่ยอดเงินสะสมไม่เปลี่ยน — ไม่อัปเดต"
-                    )
-                    continue
+            if target_rec:
+                # UPDATE
+                eid = target_rec["id"]
+                old_code = target_rec["employee_code"]
+                new_code = code if code else old_code
 
-                ec_out = code.strip() if code.strip() else (matched_nid.get("employee_code") or "").strip()
-                if not ec_out:
-                    skipped += 1
-                    messages.append(
-                        f"แถว {i}: จับคู่ตามเลขบัตร+ชื่อได้ แต่ไม่มีรหัสพนักงานในไฟล์และในฐานข้อมูล — ใส่รหัสใน Excel หรือให้มีรหัสในฐานข้อมูลก่อน"
-                    )
-                    continue
+                # Only re-hash if code changes or we don't have a hash
+                pw_hash = target_rec["password_hash"]
+                if not pw_hash or (new_code and new_code != old_code):
+                    pw_hash = generate_password_hash(new_code)
 
-                eid = int(matched_nid["id"])
                 cur.execute(
                     """
                     UPDATE employees
-                    SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?,
-                        password_hash=?, employee_code=?
+                    SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, 
+                        accumulated_savings=?, password_hash=?, employee_code=?
                     WHERE id=?
                     """,
-                    (
-                        name,
-                        national_id,
-                        start_d,
-                        app_d,
-                        savings,
-                        generate_password_hash(ec_out.strip()),
-                        ec_out.strip(),
-                        eid,
-                    ),
+                    (name, national_id, start_d, app_d, savings, pw_hash, new_code, eid),
                 )
                 updated += 1
-                _audit_append(
-                    cur,
-                    "hr",
-                    hr_email,
-                    "excel_import",
-                    "employee",
-                    eid,
-                    f"อัปเดตจาก Excel (จับคู่เลขบัตร+ชื่อ): {name[:100]} ({ec_out.strip()}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
-                    actor_hr_user_id=hr_user_id,
-                )
-                by_nid_name.pop((nid_key, name_key), None)
-                nk2 = _norm_national_id_digits(national_id)
-                mk2 = _norm_display_name_compare(name)
-                by_nid_name[(nk2, mk2)] = {
-                    "id": eid,
-                    "accumulated_savings": savings,
-                    "display_name": name,
-                    "national_id": national_id,
-                    "employee_code": ec_out.strip(),
-                }
-                continue
-
-            if not code:
-                skipped += 1
-                messages.append(
-                    f"แถว {i}: ไม่พบพนักงานที่ตรงเลขบัตรประชาชนและชื่อ-สกุล — ตรวจสอบข้อมูล หรือใส่รหัสพนักงานเพื่อจับคู่แบบเดิม"
-                )
-                continue
-
-            cur.execute(
-                """
-                SELECT id FROM employees
-                WHERE lower(trim(COALESCE(employee_code, ''))) = lower(trim(?))
-                LIMIT 1
-                """,
-                (code,),
-            )
-            ex = cur.fetchone()
-
-            if ex:
-                code_secret = code.strip()
-                cur.execute(
-                    """
-                    UPDATE employees
-                    SET display_name=?, national_id=?, start_work_date=?, appointment_date=?, accumulated_savings=?,
-                        password_hash=?
-                    WHERE id=?
-                    """,
+                audit_entries.append(
                     (
-                        name,
-                        national_id,
-                        start_d,
-                        app_d,
-                        savings,
-                        generate_password_hash(code_secret),
-                        ex["id"],
-                    ),
-                )
-                updated += 1
-                _audit_append(
-                    cur,
-                    "hr",
-                    hr_email,
-                    "excel_import",
-                    "employee",
-                    int(ex["id"]),
-                    f"อัปเดตจาก Excel: {name[:120]} ({code}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
-                    actor_hr_user_id=hr_user_id,
-                )
-                erow = cur.execute(
-                    "SELECT id, accumulated_savings, display_name, national_id, employee_code FROM employees WHERE id=?",
-                    (int(ex["id"]),),
-                ).fetchone()
-                if erow:
-                    nk = _norm_national_id_digits(erow["national_id"] or "")
-                    mk = _norm_display_name_compare(erow["display_name"] or "")
-                    if nk and mk:
-                        by_nid_name[(nk, mk)] = {
-                            "id": int(erow["id"]),
-                            "accumulated_savings": int(erow["accumulated_savings"] or 0),
-                            "display_name": str(erow["display_name"] or ""),
-                            "national_id": str(erow["national_id"] or ""),
-                            "employee_code": str(erow["employee_code"] or ""),
-                        }
-            else:
-                email = _hr_import_pick_email_for_code(cur, code)
-                try:
-                    cur.execute(
-                        """
-                        INSERT INTO employees (
-                          email, password_hash, display_name, employee_code, national_id,
-                          start_work_date, appointment_date, accumulated_savings
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            email,
-                            generate_password_hash(code.strip()),
-                            name,
-                            code,
-                            national_id,
-                            start_d,
-                            app_d,
-                            savings,
-                        ),
-                    )
-                    created += 1
-                    new_eid = int(cur.lastrowid)
-                    _audit_append(
-                        cur,
                         "hr",
                         hr_email,
                         "excel_import",
                         "employee",
-                        new_eid,
-                        f"สร้างจาก Excel: {name[:120]} ({code}) · ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                        eid,
+                        f"อัปเดต ({match_type}): {name} ({new_code}) ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                        hr_user_id,
                     )
-                    nk = _norm_national_id_digits(national_id)
-                    mk = _norm_display_name_compare(name)
-                    if nk and mk:
-                        by_nid_name[(nk, mk)] = {
-                            "id": new_eid,
-                            "accumulated_savings": savings,
-                            "display_name": name,
-                            "national_id": national_id,
-                            "employee_code": code.strip(),
-                        }
-                except sqlite3.IntegrityError:
+                )
+            else:
+                # CREATE NEW
+                if not code and not nid_key:
                     skipped += 1
-                    messages.append(f"แถว {i}: บันทึกไม่สำเร็จ (อีเมล/รหัสซ้ำ)")
+                    messages.append(
+                        f"แถว {i}: ข้ามเนื่องจากไม่มีรหัสพนักงานหรือเลขบัตรประชาชนสำหรับสร้างใหม่"
+                    )
+                    continue
+
+                new_email = _hr_import_pick_email_bulk(
+                    used_emails, code if code else nid_key
+                )
+                pw_hash = generate_password_hash(code if code else national_id)
+
+                cur.execute(
+                    """
+                    INSERT INTO employees (
+                        email, password_hash, display_name, employee_code,
+                        national_id, start_work_date, appointment_date,
+                        accumulated_savings, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')
+                    """,
+                    (
+                        new_email,
+                        pw_hash,
+                        name,
+                        code,
+                        national_id,
+                        start_d,
+                        app_d,
+                        savings,
+                    ),
+                )
+                new_id = cur.lastrowid
+                created += 1
+                audit_entries.append(
+                    (
+                        "hr",
+                        hr_email,
+                        "excel_import",
+                        "employee",
+                        new_id,
+                        f"สร้างใหม่: {name} ({code}) ยอดเงินสะสม {_fmt_savings_th(savings)}",
+                        hr_user_id,
+                    )
+                )
+
+        # 3. Bulk Insert Audits
+        if audit_entries:
+            cur.executemany(
+                """
+                INSERT INTO audit_log (actor_role, actor_label, action, entity_type, entity_id, summary, actor_hr_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                audit_entries,
+            )
 
         conn.commit()
 
@@ -1394,6 +1332,43 @@ def hr_employee_delete():
         conn.commit()
 
     return jsonify({"message": "deleted"}), 200
+
+
+@auth_bp.route("/api/hr/employees/clear-all", methods=["POST"])
+def hr_employees_clear_all():
+    payload = request.get_json(silent=True) or {}
+    _hr_row, err = _verify_hr_credentials(payload)
+    if err:
+        return err[0], err[1]
+
+    hr_email = _norm_email(str(_hr_row["email"] or ""))
+    hr_user_id = int(_hr_row["id"])
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Count existing employees for the audit log
+        cur.execute("SELECT COUNT(*) AS c FROM employees")
+        count = cur.fetchone()["c"]
+
+        # Delete all password reset requests first (foreign key dependency)
+        cur.execute("DELETE FROM password_reset_requests")
+        # Delete all employees
+        cur.execute("DELETE FROM employees")
+
+        _audit_append(
+            cur,
+            "hr",
+            hr_email,
+            "employee_clear_all",
+            "employee",
+            None,
+            f"ล้างฐานข้อมูลพนักงานทั้งหมด (จำนวน {count} รายการ)",
+            actor_hr_user_id=hr_user_id,
+        )
+        conn.commit()
+
+    return jsonify({"message": f"cleared {count} employees"}), 200
 
 
 @auth_bp.route("/api/admin/dashboard", methods=["POST"])

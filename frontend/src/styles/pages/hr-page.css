@@ -345,6 +345,39 @@
   color: rgba(8, 6, 13, 0.82);
 }
 
+.hrTableThLastUpdatedInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hrTableClearAllBtn {
+  background: #fff;
+  border: 1px solid #e11d48;
+  color: #e11d48;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.hrTableClearAllBtn:hover:not(:disabled) {
+  background: #e11d48;
+  color: #fff;
+}
+
+.hrTableClearAllBtn:disabled {
+  opacity: 0.5;
+  border-color: #e5e4e7;
+  color: #6b6375;
+  cursor: not-allowed;
+}
+
 .hrTableRowActions {
   gap: 6px;
   justify-content: flex-end;

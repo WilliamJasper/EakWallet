@@ -87,14 +87,6 @@ function HrTrashIcon() {
   )
 }
 
-/** กันข้อความวันที่จาก Excel มีตัวขึ้นบรรทัดใหม่ แล้วตารางแตกบรรทัด */
-function displayOneLineDate(v: string | undefined): string {
-  if (v == null || v === '') return '—'
-  if (v === '—' || v === '-') return v
-  const t = v.replace(/\r?\n/g, '').replace(/\s+/g, ' ').trim()
-  return t || '—'
-}
-
 /** ค่า created_at จาก SQLite — ต่อ Z ให้ parse เป็น UTC แล้วแสดงตามเวลาเครื่อง */
 function parseStoredAuditUtc(isoish: string): Date {
   const raw = isoish.trim()
@@ -297,23 +289,6 @@ export default function HrPage() {
     () => employees.reduce((sum, row) => sum + Number(row.accumulatedSavings || 0), 0),
     [employees]
   )
-  const pendingProfileCount = useMemo(
-    () =>
-      employees.filter(
-        (row) =>
-          !row.fullName?.trim() || !row.employeeCode?.trim() || !row.startWorkDate?.trim() || !row.appointmentDate?.trim()
-      ).length,
-    [employees]
-  )
-  const newThisMonthCount = useMemo(() => {
-    const now = new Date()
-    const y = now.getFullYear()
-    const m = now.getMonth()
-    return employees.filter((row) => {
-      const d = new Date(row.startWorkDate || '')
-      return !Number.isNaN(d.getTime()) && d.getFullYear() === y && d.getMonth() === m
-    }).length
-  }, [employees])
 
   async function onExcelSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -336,6 +311,7 @@ export default function HrPage() {
         return
       }
       const rows = parsed.rows
+      console.log('📦 Excel Parsed rows:', rows.length, rows)
 
       const res = await fetch(`${API_BASE_URL}/api/hr/employees/import`, {
         method: 'POST',
@@ -348,18 +324,23 @@ export default function HrPage() {
         return
       }
 
+      console.log('✅ Import Success:', data)
       const parts = [
-        `เพิ่ม ${data?.created ?? 0} รายการ`,
-        `อัปเดต ${data?.updated ?? 0} รายการ`,
+        `นำเข้าสำเร็จ (รวมข้อมูลในไฟล์: ${rows.length})`,
+        `เพิ่มใหม่: ${data?.created ?? 0}`,
+        `อัปเดต: ${data?.updated ?? 0}`,
       ]
-      if (data?.skipped > 0) parts.push(`ข้าม ${data.skipped} แถว`)
+      if (data?.skipped > 0) parts.push(`ข้าม: ${data.skipped}`)
       setInfo(parts.join(' · '))
+
       const msgs = Array.isArray(data?.messages) ? data.messages : []
       if (msgs.length > 0) {
-        setInfo((prev) => [prev, ...msgs.slice(0, 5)].filter(Boolean).join(' | '))
+        console.warn('⚠️ Import skip details:', msgs)
+        setInfo((prev) => [prev, ...msgs.slice(0, 3)].filter(Boolean).join(' | '))
       }
       await loadEmployees()
-    } catch {
+    } catch (err) {
+      console.error('❌ Import error:', err)
       setError('อ่านไฟล์หรือนำเข้าไม่สำเร็จ')
     } finally {
       setImporting(false)
@@ -457,6 +438,38 @@ export default function HrPage() {
       setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')
     } finally {
       setActionBusyId(null)
+    }
+  }
+
+  async function clearAllEmployees() {
+    const creds = getHrCreds()
+    if (!creds) return
+
+    const ok = window.confirm('ต้องการลบข้อมูลพนักงานทั้งหมดใช่ไหม? การกระทำนี้ไม่สามารถย้อนกลับได้!')
+    if (!ok) return
+
+    setLoading(true)
+    setError(null)
+    setInfo(null)
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/hr/employees/clear-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(creds),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(data?.error || 'ล้างข้อมูลไม่สำเร็จ')
+        return
+      }
+
+      setInfo('ล้างข้อมูลพนักงานทั้งหมดแล้ว')
+      await loadEmployees()
+    } catch {
+      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -596,177 +609,177 @@ export default function HrPage() {
 
                 <main className="adminMain">
                   <section className="hrHeroStats">
-            <article className="hrHeroCard hrHeroCardLight">
-              <div className="hrHeroLabel">TOTAL EMPLOYEES</div>
-              <div className="hrHeroTitle">จำนวนพนักงานทั้งหมด</div>
-              <div className="hrHeroValue">{totalEmployees.toLocaleString()}</div>
-            </article>
-            <article className="hrHeroCard hrHeroCardDark">
-              <div className="hrHeroLabel">TOTAL ACCUMULATED FUNDS</div>
-              <div className="hrHeroTitle hrHeroTitleDark">ยอดเงินสะสมพนักงานทั้งหมด</div>
-              <div className="hrHeroValueDark">฿{totalSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-            </article>
-          </section>
-          <section className="hrMiniStats">
-            <article className="hrMiniStatCard">
-              <div className="hrMiniStatLabel">พนักงานเริ่มงานเดือนนี้</div>
-              <div className="hrMiniStatValue">{newThisMonthCount.toLocaleString()} คน</div>
-            </article>
-            <article className="hrMiniStatCard">
-              <div className="hrMiniStatLabel">ข้อมูลยังไม่ครบ</div>
-              <div className="hrMiniStatValue">{pendingProfileCount.toLocaleString()} รายการ</div>
-            </article>
-          </section>
+                    <article className="hrHeroCard hrHeroCardLight">
+                      <div className="hrHeroLabel">TOTAL EMPLOYEES</div>
+                      <div className="hrHeroTitle">จำนวนพนักงานทั้งหมด</div>
+                      <div className="hrHeroValue">{totalEmployees.toLocaleString()}</div>
+                    </article>
+                    <article className="hrHeroCard hrHeroCardDark">
+                      <div className="hrHeroLabel">TOTAL ACCUMULATED FUNDS</div>
+                      <div className="hrHeroTitle hrHeroTitleDark">ยอดเงินสะสมพนักงานทั้งหมด</div>
+                      <div className="hrHeroValueDark">฿{totalSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                    </article>
+                  </section>
 
-          <div className="adminSection">
-            <div className="hrTableMeta">
-              <div className="hrTableMetaPrimary">
-                <span className="hrTableMetaHeading">Employee List</span>
-                <span className="adminMuted hrTableMetaCount">{badgeText}</span>
-                <span className="hrTableMetaDot" aria-hidden="true">
-                  ·
-                </span>
-                <span>
-                  แสดงผล {filtered.length.toLocaleString()} จาก {employees.length.toLocaleString()} รายการ
-                </span>
-              </div>
-              <div className="hrTableMetaTools">
-                <div className="hrSearchWrap">
-                  <svg
-                    className="hrSearchIcon"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="M21 21l-4.35-4.35" />
-                  </svg>
-                  <input
-                    className="adminInput hrSearchInput"
-                    placeholder="ค้นหา role / ชื่อ / รหัสพนักงาน / เลขบัตรประชาชน / วันที่"
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                  />
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hrFileInputHidden"
-                  aria-hidden="true"
-                  tabIndex={-1}
-                  onChange={onExcelSelected}
-                />
-                <button
-                  type="button"
-                  className="adminBtn adminBtnPrimary hrImportBtn"
-                  disabled={importing}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {importing ? 'กำลังนำเข้า...' : 'นำเข้า Excel'}
-                </button>
-                <button
-                  type="button"
-                  className="adminBtn adminBtnGhost hrFilterIconBtn"
-                  aria-label="ตัวกรอง"
-                  title="ตัวกรอง"
-                >
-                  <FilterIcon />
-                </button>
-              </div>
-            </div>
+                  <div className="adminSection">
+                    <div className="hrTableMeta">
+                      <div className="hrTableMetaPrimary">
+                        <span className="hrTableMetaHeading">Employee List</span>
+                        <span className="adminMuted hrTableMetaCount">{badgeText}</span>
+                        <span className="hrTableMetaDot" aria-hidden="true">
+                          ·
+                        </span>
+                        <span>
+                          แสดงผล {filtered.length.toLocaleString()} จาก {employees.length.toLocaleString()} รายการ
+                        </span>
+                      </div>
+                      <div className="hrTableMetaTools">
+                        <div className="hrSearchWrap">
+                          <svg
+                            className="hrSearchIcon"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <circle cx="11" cy="11" r="7" />
+                            <path d="M21 21l-4.35-4.35" />
+                          </svg>
+                          <input
+                            className="adminInput hrSearchInput"
+                            placeholder="ค้นหา role / ชื่อ / รหัสพนักงาน / เลขบัตรประชาชน / วันที่"
+                            value={q}
+                            onChange={(e) => setQ(e.target.value)}
+                          />
+                        </div>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".xlsx,.xls"
+                          className="hrFileInputHidden"
+                          aria-hidden="true"
+                          tabIndex={-1}
+                          onChange={onExcelSelected}
+                        />
+                        <button
+                          type="button"
+                          className="adminBtn adminBtnPrimary hrImportBtn"
+                          disabled={importing}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {importing ? 'กำลังนำเข้า...' : 'นำเข้า Excel'}
+                        </button>
+                        <button
+                          type="button"
+                          className="adminBtn adminBtnGhost hrFilterIconBtn"
+                          aria-label="ตัวกรอง"
+                          title="ตัวกรอง"
+                        >
+                          <FilterIcon />
+                        </button>
+                      </div>
+                    </div>
 
-            <div className="adminTableWrap hrTableModern">
-              <table className="adminTable">
-                <thead>
-                  <tr>
-                    <th>Role</th>
-                    <th className="hrTableThCode">รหัสพนักงาน</th>
-                    <th>เลขบัตรประชาชน</th>
-                    <th className="adminTableThName">ชื่อ-สกุล</th>
-                    <th>วันเริ่มงาน</th>
-                    <th>วันบรรจุ</th>
-                    <th>ยอดเงินสะสม</th>
-                    <th>สถานะ</th>
-                    <th className="hrTableThLastUpdated">อัพเดทล่าสุด</th>
-                    <th aria-label="การดำเนินการ" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={9} className="hrTableStatusCell">
-                        กำลังโหลด...
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr className="hrTableEmptyRow" aria-hidden="true">
-                      <td colSpan={9} className="hrTableEmptyCell" />
-                    </tr>
-                  ) : (
-                    filtered.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.role}</td>
-                        <td className="hrTableCodeCell">{row.employeeCode || '—'}</td>
-                        <td>{row.nationalId || '—'}</td>
-                        <td
-                          className="adminTableTdName"
-                          title={row.fullName?.trim() ? row.fullName : undefined}
-                        >
-                          {row.fullName || '—'}
-                        </td>
-                        <td className="hrTableDateCell">{displayOneLineDate(row.startWorkDate)}</td>
-                        <td className="hrTableDateCell">{displayOneLineDate(row.appointmentDate)}</td>
-                        <td>{row.accumulatedSavings.toLocaleString()}</td>
-                        <td>
-                          <span className={`hrStatusBadge ${row.status === 'Inactive' ? 'hrStatusBadge--inactive' : 'hrStatusBadge--active'}`}>
-                            {row.status === 'Inactive' ? 'Inactive' : 'Active'}
-                          </span>
-                        </td>
-                        <td
-                          className="hrTableLastUpdatedCell"
-                          title={row.lastUpdatedAt?.trim() ? formatLastUpdatedAt(row.lastUpdatedAt) : undefined}
-                        >
-                          {formatLastUpdatedAt(row.lastUpdatedAt)}
-                        </td>
-                        <td className="adminTableActions">
-                          <div className="adminRowActions hrTableRowActions">
-                            <button
-                              type="button"
-                              className="hrTableIconBtn hrTableIconBtn--edit"
-                              disabled={actionBusyId === row.id}
-                              aria-label={`แก้ไข ${row.fullName || row.employeeCode || 'พนักงาน'}`}
-                              title="แก้ไข"
-                              onClick={() => openEdit(row)}
-                            >
-                              <HrPencilIcon />
-                            </button>
-                            <button
-                              type="button"
-                              className="hrTableIconBtn hrTableIconBtn--delete"
-                              disabled={actionBusyId === row.id}
-                              aria-label={
-                                actionBusyId === row.id
-                                  ? 'กำลังลบ'
-                                  : `ลบ ${row.fullName || row.employeeCode || 'พนักงาน'}`
-                              }
-                              title={actionBusyId === row.id ? 'กำลังลบ...' : 'ลบ'}
-                              onClick={() => deleteOne(row)}
-                            >
-                              <HrTrashIcon />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    <div className="adminTableWrap hrTableModern">
+                      <table className="adminTable">
+                        <thead>
+                          <tr>
+                            <th>ลำดับ</th>
+                            <th>Role</th>
+                            <th className="hrTableThCode">รหัสพนักงาน</th>
+                            <th>เลขบัตรประชาชน</th>
+                            <th className="adminTableThName">ชื่อ-สกุล</th>
+                            <th>ยอดเงินสะสม</th>
+                            <th>สถานะ</th>
+                            <th className="hrTableThLastUpdated">
+                              <div className="hrTableThLastUpdatedInner">
+                                <span>อัพเดทล่าสุด</span>
+                                <button
+                                  type="button"
+                                  className="hrTableClearAllBtn"
+                                  onClick={clearAllEmployees}
+                                  disabled={loading || employees.length === 0}
+                                >
+                                  เคลียข้อมูลทั้งหมด
+                                </button>
+                              </div>
+                            </th>
+                            <th aria-label="การดำเนินการ" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loading ? (
+                            <tr>
+                              <td colSpan={9} className="hrTableStatusCell">
+                                กำลังโหลด...
+                              </td>
+                            </tr>
+                          ) : filtered.length === 0 ? (
+                            <tr className="hrTableEmptyRow" aria-hidden="true">
+                              <td colSpan={9} className="hrTableEmptyCell" />
+                            </tr>
+                          ) : (
+                            filtered.map((row, idx) => (
+                              <tr key={row.id}>
+                                <td>{idx + 1}</td>
+                                <td>{row.role}</td>
+                                <td className="hrTableCodeCell">{row.employeeCode || '—'}</td>
+                                <td>{row.nationalId || '—'}</td>
+                                <td
+                                  className="adminTableTdName"
+                                  title={row.fullName?.trim() ? row.fullName : undefined}
+                                >
+                                  {row.fullName || '—'}
+                                </td>
+                                <td>{row.accumulatedSavings.toLocaleString()}</td>
+                                <td>
+                                  <span className={`hrStatusBadge ${row.status === 'Inactive' ? 'hrStatusBadge--inactive' : 'hrStatusBadge--active'}`}>
+                                    {row.status === 'Inactive' ? 'Inactive' : 'Active'}
+                                  </span>
+                                </td>
+                                <td
+                                  className="hrTableLastUpdatedCell"
+                                  title={row.lastUpdatedAt?.trim() ? formatLastUpdatedAt(row.lastUpdatedAt) : undefined}
+                                >
+                                  {formatLastUpdatedAt(row.lastUpdatedAt)}
+                                </td>
+                                <td className="adminTableActions">
+                                  <div className="adminRowActions hrTableRowActions">
+                                    <button
+                                      type="button"
+                                      className="hrTableIconBtn hrTableIconBtn--edit"
+                                      disabled={actionBusyId === row.id}
+                                      aria-label={`แก้ไข ${row.fullName || row.employeeCode || 'พนักงาน'}`}
+                                      title="แก้ไข"
+                                      onClick={() => openEdit(row)}
+                                    >
+                                      <HrPencilIcon />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="hrTableIconBtn hrTableIconBtn--delete"
+                                      disabled={actionBusyId === row.id}
+                                      aria-label={
+                                        actionBusyId === row.id
+                                          ? 'กำลังลบ'
+                                          : `ลบ ${row.fullName || row.employeeCode || 'พนักงาน'}`
+                                      }
+                                      title={actionBusyId === row.id ? 'กำลังลบ...' : 'ลบ'}
+                                      onClick={() => deleteOne(row)}
+                                    >
+                                      <HrTrashIcon />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </main>
               </>
             }

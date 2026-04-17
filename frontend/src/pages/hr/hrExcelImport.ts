@@ -40,7 +40,7 @@ function mapHeaderToField(headerNorm: string): keyof HrImportPayloadRow | null {
   if (h.includes('ปปช')) return 'nationalId'
   if (h === 'เลขบัตร') return 'nationalId'
 
-  if (h.includes('รหัสพนักงาน') || h.includes('employee code') || h.includes('emp code')) return 'employeeCode'
+  if (h.includes('รหัสพนักงาน') || h === 'รหัส' || h.includes('employee code') || h.includes('emp code')) return 'employeeCode'
 
   if (h.includes('ชื่อ-สกุล') || h.includes('ชื่อสกุล')) return 'displayName'
   if (h.includes('full name') || h.includes('display name')) return 'displayName'
@@ -78,11 +78,13 @@ function normalizeDate(val: unknown): string {
     return val.toISOString().slice(0, 10)
   }
   if (typeof val === 'number') {
+    // Excel date (serial number)
     if (val > 59 && val < 600000) {
       const utc = (val - 25569) * 86400 * 1000
       const d = new Date(utc)
       if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
     }
+    return val.toLocaleString('fullwide', { useGrouping: false })
   }
   const s = String(val).replace(/\r?\n/g, '').replace(/\s+/g, ' ').trim()
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
@@ -121,14 +123,20 @@ function readDataRow(
   const displayName = cellString(pickCell(row, map, useFixed, 'displayName', 1))
   const employeeCode = cellString(pickCell(row, map, useFixed, 'employeeCode', 2))
   const roleRaw = pickCell(row, map, useFixed, 'role', 0)
-  const nationalRaw = pickCell(row, map, useFixed, 'nationalId', 6)
+  const nationalRaw = pickCell(row, map, useFixed, 'nationalId', 3) // Column D
   const nationalIdEarly = cellString(nationalRaw)
-  /** ต้องมีชื่อ และ (รหัสพนักงาน หรือเลขบัตร — เลขบัตร+ชื่อใช้จับคู่อัปเดตยอดแบบ bulk) */
-  if (!displayName || (!employeeCode.trim() && !nationalIdEarly.replace(/\D/g, '').trim())) return null
 
-  const startRaw = pickCell(row, map, useFixed, 'startWorkDate', 3)
-  const appRaw = pickCell(row, map, useFixed, 'appointmentDate', 4)
-  const savRaw = pickCell(row, map, useFixed, 'accumulatedSavings', 5)
+  /** ต้องมีชื่อ และ (รหัสพนักงาน หรือเลขบัตร — เลขบัตร+ชื่อใช้จับคู่อัปเดตยอดแบบ bulk) */
+  if (
+    !displayName ||
+    (!employeeCode.trim() && !nationalIdEarly.replace(/\D/g, '').trim())
+  ) {
+    return null
+  }
+
+  const startRaw = pickCell(row, map, useFixed, 'startWorkDate', 5) // Fallback for other formats
+  const appRaw = pickCell(row, map, useFixed, 'appointmentDate', 6)
+  const savRaw = pickCell(row, map, useFixed, 'accumulatedSavings', 4) // Column E
 
   const roleStr = cellString(roleRaw)
   return {
@@ -143,8 +151,7 @@ function readDataRow(
 }
 
 /**
- * แถวที่ 1 = หัวคอลัมน์ (ชื่อฟิลด์), แถวที่ 2 เป็นต้นไป = ข้อมูลพนักงาน
- * แมปคอลัมน์ตามชื่อหัว (ไทย/อังกฤษ) — ถ้าไม่พบหัวที่จับคู่ได้ จะ fallback เป็นลำดับคอลัมน์เดิม A=role … G=เลขบัตร
+ * แมปคอลัมน์ตามชื่อหัว (ไทย/อังกฤษ) — ถ้าไม่พบหัวที่จับคู่ได้ จะ fallback เป็นลำดับคอลัมน์เดิม
  */
 export async function parseHrEmployeeWorkbook(file: File): Promise<HrImportParseResult> {
   const buf = await file.arrayBuffer()
@@ -159,28 +166,48 @@ export async function parseHrEmployeeWorkbook(file: File): Promise<HrImportParse
     { header: 1, defval: '', raw: true }
   )
 
-  if (matrix.length < 2) {
+  if (matrix.length < 1) {
     return {
       ok: false,
-      message: 'ไฟล์ต้องมีแถวหัวคอลัมน์ (แถวที่ 1) และข้อมูลพนักงานอย่างน้อย 1 แถว (เริ่มแถวที่ 2)',
+      message: 'ไฟล์ไม่มีข้อมูล',
     }
   }
 
-  const headerRow = matrix[0]
-  if (!Array.isArray(headerRow)) {
-    return { ok: false, message: 'รูปแบบไฟล์ไม่ถูกต้อง' }
+  // ปรับปรุงการหาจุดเริ่มต้นข้อมูล: หาแถวที่มีคำว่า "ชื่อสกุล" หรือ "รหัส" ใน 5 แถวแรก
+  let headerIndex = -1
+  for (let i = 0; i < Math.min(matrix.length, 6); i++) {
+    const r = matrix[i]
+    if (!Array.isArray(r)) continue
+    const rStr = r.map(c => String(c ?? '').trim()).join(' ')
+    if (rStr.includes('ชื่อสกุล') || rStr.includes('รหัส')) {
+      headerIndex = i
+      break
+    }
   }
 
-  const colMap = buildColumnMap(headerRow)
+  let dataStartIndex = 1
+  if (headerIndex !== -1) {
+    dataStartIndex = headerIndex + 1
+  } else {
+    headerIndex = 0 // Fallback
+  }
+
+  const headerRow = matrix[headerIndex]
+  const colMap = buildColumnMap(Array.isArray(headerRow) ? headerRow : [])
   const hasHeaderMapping =
     colMap.displayName !== undefined &&
     (colMap.employeeCode !== undefined || colMap.nationalId !== undefined)
-  const useFixed = !hasHeaderMapping
+  
+  // ให้ใช้ useFixed เป็น true หากไม่พบ Mapping ตาม Header ที่คาดหวัง 
+  // หรือถ้าเป็นเทมเพลตที่หัวอยู่ที่แถว 3 เราจะเน้น Fixed Column ลำดับ B, C, D, E
+  const useFixed = headerIndex === 2 || !hasHeaderMapping
 
   const out: HrImportPayloadRow[] = []
-  for (let r = 1; r < matrix.length; r++) {
+  for (let r = dataStartIndex; r < matrix.length; r++) {
     const row = matrix[r]
     if (!Array.isArray(row)) continue
+    
+    // ข้ามแถวที่คอลัมน์ A (ลำดับ) เป็นค่าว่างและไม่มีชื่อสกุล
     const meaningful = row.some((c) => String(c ?? '').replace(/\r?\n/g, '').trim() !== '')
     if (!meaningful) continue
 
@@ -189,17 +216,10 @@ export async function parseHrEmployeeWorkbook(file: File): Promise<HrImportParse
   }
 
   if (out.length === 0) {
-    if (!hasHeaderMapping) {
-      return {
-        ok: false,
-        message:
-          'ไม่พบข้อมูลพนักงาน — แถวแรกควรเป็นหัวคอลัมน์ที่มีอย่างน้อย "ชื่อ-สกุล" และ ("รหัสพนักงาน" หรือ "เลขบัตรประชาชน") หรือใช้ลำดับคอลัมน์แบบเดิม (A–G) โดยข้อมูลเริ่มแถวที่ 2',
-      }
-    }
     return {
       ok: false,
       message:
-        'ไม่พบแถวข้อมูลที่มีชื่อ-สกุล และรหัสพนักงานหรือเลขบัตรประชาชน (อย่างใดอย่างหนึ่ง)',
+        'ไม่พบข้อมูลพนักงาน — กรุณาตรวจสอบว่าไฟล์มีคอลัมน์ "ชื่อสกุล", "รหัส", "เลขที่ ID 13 หลัก" และ "ยอดเงินสะสม" ครบถ้วน',
     }
   }
 
